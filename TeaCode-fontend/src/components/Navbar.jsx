@@ -15,7 +15,7 @@ import { useNotify } from '../hooks/useNotify.js';
 const CENTER_LINKS = [
   { label: 'Home', to: '/', end: true },
   { label: 'Problem', to: '/problems' },
-  { label: 'Terminal', to: '/terminal' },
+  ...(import.meta.env.VITE_TERMINAL_ENABLED === 'false' ? [] : [{ label: 'Terminal', to: '/terminal' }]),
   { label: 'About', to: '/about' },
 ];
 

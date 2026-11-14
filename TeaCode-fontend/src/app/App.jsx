@@ -54,7 +54,7 @@ export default function App() {
             <Route path="/about" element={<AboutPage />} />
             <Route path="/problems" element={<ProblemsPage />} />
             <Route path="/problems/:slug" element={<WorkspacePage />} />
-            <Route path="/terminal" element={<TerminalPage />} />
+            {import.meta.env.VITE_TERMINAL_ENABLED !== 'false' && <Route path="/terminal" element={<TerminalPage />} />}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<LoginPage />} />
             {/* Password reset flow is handled separately; legacy paths remain safe redirects. */}

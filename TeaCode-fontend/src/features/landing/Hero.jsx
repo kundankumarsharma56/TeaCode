@@ -47,7 +47,7 @@ export default function Hero() {
           </motion.div>
           <motion.div {...enter(0.2)}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ justifyContent: 'center' }}>
-              <Button component={RouterLink} to="/terminal" size="large" variant="contained" sx={{ px: 3.5, minHeight: 50, fontWeight: 700, borderRadius: 1.5 }}>Start Coding</Button>
+              <Button component={RouterLink} to={import.meta.env.VITE_TERMINAL_ENABLED === 'false' ? '/problems' : '/terminal'} size="large" variant="contained" sx={{ px: 3.5, minHeight: 50, fontWeight: 700, borderRadius: 1.5 }}>Start Coding</Button>
               <Button
                 component={RouterLink}
                 to="/problems"

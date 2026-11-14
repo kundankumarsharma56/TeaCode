@@ -37,7 +37,7 @@ export default function Features() {
           ))}
         </Box>
         <Box sx={{ mt: 4, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2 }}>
-          <Button component={RouterLink} to="/terminal" variant="contained" size="large" sx={{ px: 3, minHeight: 48, fontWeight: 700, borderRadius: 1.5 }}>Open the terminal</Button>
+          <Button component={RouterLink} to={import.meta.env.VITE_TERMINAL_ENABLED === 'false' ? '/problems' : '/terminal'} variant="contained" size="large" sx={{ px: 3, minHeight: 48, fontWeight: 700, borderRadius: 1.5 }}>{import.meta.env.VITE_TERMINAL_ENABLED === 'false' ? 'Browse problems' : 'Open the terminal'}</Button>
           <Typography color="text.secondary" sx={{ fontSize: 15 }}>Open the editor and run your first program.</Typography>
         </Box>
       </Container>

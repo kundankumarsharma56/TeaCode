@@ -15,7 +15,7 @@ export default function FinalCta() {
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
               <Button
                 component={RouterLink}
-                to="/terminal"
+                to={import.meta.env.VITE_TERMINAL_ENABLED === 'false' ? '/problems' : '/terminal'}
                 size="large"
                 variant="contained"
                 sx={{ minHeight: 50, px: 4, fontWeight: 700, borderRadius: 1.5, boxShadow: 'none' }}
