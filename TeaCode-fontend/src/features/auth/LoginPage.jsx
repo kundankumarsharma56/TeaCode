@@ -59,7 +59,7 @@ export default function LoginPage() {
     try {
       if (isRegister) {
         await api.post('/auth/register', { username: values.username.trim(), email: values.email.trim(), password: values.password, acceptPolicies: true, policyVersion: POLICY_VERSION });
-        setNotice('Account created. Check your email for the verification link before signing in.');
+        setNotice('Account created. You can now sign in.');
         setValues(initial);
       } else {
         const response = await api.post('/auth/login', { email: values.email.trim(), password: values.password });

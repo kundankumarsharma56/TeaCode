@@ -61,6 +61,9 @@ public class AuthService {
     private final AppProperties props;
     private final Clock clock;
     private final UserViewService views;
+    /** When false, accounts are verified at registration and no verification email is sent. */
+    @org.springframework.beans.factory.annotation.Value("${TEACODE_REQUIRE_EMAIL_VERIFICATION:true}")
+    private boolean requireEmailVerification = true;
     /** Verified against when the account does not exist, so login timing does not reveal which emails are registered. */
     private final String dummyHash;
 
@@ -124,6 +127,10 @@ public class AuthService {
                 User user = users.save(new User(username, email, hash));
                 policies.save(new PolicyAcceptance(user.getId(), "TERMS", req.policyVersion()));
                 policies.save(new PolicyAcceptance(user.getId(), "PRIVACY", req.policyVersion()));
+                if (!requireEmailVerification) {
+                    user.setEmailVerified(true);
+                    return "";
+                }
                 return issueVerificationToken(user.getId());
             });
         } catch (DataIntegrityViolationException e) {
@@ -131,7 +138,9 @@ public class AuthService {
             throw new ConflictException("Username is not available.");
         }
 
-        if (rawToken != null) {
+        if (rawToken != null && rawToken.isEmpty()) {
+            audit.record(null, "REGISTER", "SUCCESS", ip, "email verification off");
+        } else if (rawToken != null) {
             mailer.sendVerification(email, link("/verify-email", rawToken));
             audit.record(null, "REGISTER", "SUCCESS", ip, null);
         } else {
@@ -181,7 +190,7 @@ public class AuthService {
             audit.record(user != null ? user.getId() : null, "LOGIN", "FAILURE", ip, null);
             throw new UnauthorizedException("Invalid email or password.");
         }
-        if (!user.isEmailVerified()) {
+        if (requireEmailVerification && !user.isEmailVerified()) {
             audit.record(user.getId(), "LOGIN", "DENIED", ip, "email not verified");
             throw new com.teacode.exception.ForbiddenException("EMAIL_UNVERIFIED", "Verify your email address before signing in.");
         }
