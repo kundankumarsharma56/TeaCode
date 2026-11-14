@@ -66,4 +66,4 @@ Frontend (npm): react, react-dom, react-router-dom, @mui/material, @mui/icons-ma
 
 ## 7. Not yet verified (honest status)
 
-Nothing involving JDoodle, SMTP, or end-to-end flows has been verified against a live service. See README for the status table.
+Nothing involving JDoodle, SMTP, or end-to-end flows has been verified against a live service. See `docs/catalog-and-imports.md` for the exact behavior and limits.
