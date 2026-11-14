@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Alert, Box, Button, Checkbox, Divider, FormControlLabel, Link as MuiLink, Stack, TextField, Typography } from '@mui/material';
 import GitHub from '@mui/icons-material/GitHub';
 import Google from '@mui/icons-material/Google';
@@ -6,7 +6,6 @@ import { Link as RouterLink, Navigate, useLocation } from 'react-router-dom';
 import AuthShell, { errorMessage } from './AuthShell.jsx';
 import { api } from '../../services/api.js';
 import { useAuth } from '../../hooks/useAuth.js';
-import { firebaseConfigured, sendLoginLink, isLoginLink, completeLoginLink, rememberEmail, recalledEmail, forgetEmail, firebaseErrorMessage } from '../../services/firebase.js';
 import { POLICY_VERSION } from '../../config/legal.js';
 
 const initial = { username: '', email: '', password: '', acceptPolicies: false };
@@ -33,49 +32,6 @@ export default function LoginPage() {
     setBusy(true); setError('');
     try { await logout(); } catch (e) { setError(errorMessage(e, 'Could not sign out. Please try again.')); } finally { setBusy(false); }
   };
-
-  const [linkStage, setLinkStage] = useState('');
-
-  const finishLink = async (email) => {
-    setBusy(true); setError(''); setNotice('');
-    try {
-      const idToken = await completeLoginLink(email, window.location.href);
-      const response = await api.post('/auth/firebase', { idToken });
-      forgetEmail();
-      setJustSignedIn(true);
-      setUser(response.data);
-    } catch (e) {
-      setLinkStage('');
-      setError(e?.code ? firebaseErrorMessage(e) : errorMessage(e, 'Sign-in failed. Please try again.'));
-    } finally { setBusy(false); }
-  };
-
-  const sendLink = async () => {
-    setError(''); setNotice('');
-    const email = values.email.trim();
-    if (!/^\S+@\S+\.\S+$/.test(email)) { setError('Enter your email address above, then click the button.'); return; }
-    setBusy(true);
-    try {
-      await sendLoginLink(email);
-      rememberEmail(email);
-      setNotice('Sign-in link sent. Open it in this same browser. Check your spam folder too.');
-    } catch (e) { setError(firebaseErrorMessage(e)); }
-    finally { setBusy(false); }
-  };
-
-  // When this page is opened from the emailed link, finish the sign-in.
-  useEffect(() => {
-    if (isRegister || user || !firebaseConfigured) return undefined;
-    let cancelled = false;
-    isLoginLink().then((yes) => {
-      if (cancelled || !yes) return;
-      const email = recalledEmail();
-      if (email) { finishLink(email); }
-      else { setLinkStage('asking'); setNotice('Type the email you used to request the link, then click "Finish sign-in".'); }
-    }).catch(() => {});
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Right after signing in here, continue to the destination. If the browser is already signed in when this page is
   // opened (for example from a verification link), do not silently continue as that account: the person may want another.
@@ -133,9 +89,6 @@ export default function LoginPage() {
             <Button type="submit" variant="contained" size="large" disabled={busy} fullWidth sx={PRIMARY_SX}>{busy ? 'Please wait…' : isRegister ? 'Create account' : 'Sign in'}</Button>
           </Stack>
         </Box>
-        {!isRegister && firebaseConfigured && (linkStage === 'asking'
-          ? <Button variant="contained" size="large" disabled={busy} onClick={() => finishLink(values.email.trim())} sx={PRIMARY_SX}>Finish sign-in with this email</Button>
-          : <Button variant="outlined" size="large" disabled={busy} onClick={sendLink} sx={{ ...OAUTH_SX, minHeight: 48 }}>Email me a sign-in link</Button>)}
         <Divider><Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>OR CONTINUE WITH</Typography></Divider>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.2}>
           <Button variant="outlined" fullWidth startIcon={<Google />} onClick={() => oauth('google')} sx={OAUTH_SX}>Google</Button>
