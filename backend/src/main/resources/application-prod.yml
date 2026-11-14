@@ -1,0 +1,20 @@
+# Production profile. All required settings (DB_URL, DB_USERNAME, DB_PASSWORD, JWT_SECRET,
+# APP_PUBLIC_URL) have no defaults in application.yml, so startup fails if any is missing.
+server:
+  forward-headers-strategy: framework   # trust X-Forwarded-* from the nginx proxy only
+spring:
+  jpa:
+    show-sql: false
+logging:
+  structured:
+    format:
+      console: ecs   # structured JSON logs (built into Spring Boot 3.4)
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+management:
+  endpoint:
+    health:
+      show-details: never

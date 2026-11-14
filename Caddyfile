@@ -1,0 +1,4 @@
+teacode.in {
+    encode gzip
+    reverse_proxy frontend:8080
+}

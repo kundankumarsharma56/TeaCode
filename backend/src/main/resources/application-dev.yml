@@ -1,0 +1,10 @@
+# Local development only (http://localhost). Production must use the prod profile, where cookies stay Secure.
+teacode:
+  security:
+    cookie-secure: false
+
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false

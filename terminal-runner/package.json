@@ -1,0 +1,16 @@
+{
+  "name": "teacode-terminal-runner",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check runner.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "dockerode": "4.0.7",
+    "tar-stream": "3.1.7",
+    "ws": "8.22.0"
+  }
+}

@@ -1,0 +1,178 @@
+name: teacode
+services:
+  # Isolated rootless Docker daemon for interactive Terminal sessions. Do not expose its TCP port.
+  # Production deployments should place this runner daemon on a dedicated, hardened execution host.
+  terminal-docker:
+    image: docker:29-dind-rootless
+    profiles: ["full"]
+    privileged: true
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["--host=unix:///run/user/1000/docker.sock", "--host=tcp://0.0.0.0:2375", "--tls=false"]
+    expose:
+      - "2375"
+    volumes:
+      # Image store of the sandbox daemon (about 15 GB of pre-pulled language images); kept across rebuilds.
+      - sandbox-images:/home/rootless/.local/share/docker
+    networks:
+      - runner-control
+    healthcheck:
+      test: ["CMD-SHELL", "DOCKER_HOST=unix:///run/user/1000/docker.sock docker info >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  terminal-runner:
+    profiles: ["full"]
+    build: ./terminal-runner
+    restart: unless-stopped
+    depends_on:
+      terminal-docker:
+        condition: service_healthy
+    environment:
+      DOCKER_HOST: tcp://terminal-docker:2375
+      TERMINAL_RUNNER_INTERNAL_TOKEN: ${TERMINAL_RUNNER_INTERNAL_TOKEN:?set in .env}
+      PORT: 3000
+      # Languages whose runtime images are downloaded at start-up (comma separated, "all" or "none").
+      TERMINAL_PREPULL: ${TERMINAL_PREPULL:-python,javascript,java,c,cpp}
+    expose:
+      - "3000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - terminal-app
+      - runner-control
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  mysql:
+    image: mysql:8.4
+    container_name: teacode-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?set in .env}
+      MYSQL_USER: ${MYSQL_USER:?set in .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set in .env}
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Full stack for local/prod-like runs:  docker compose --profile full up --build
+  backend:
+    profiles: ["full"]
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=UTF-8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+      DB_USERNAME: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?set in .env}
+      JWT_SECRET: ${JWT_SECRET:?set in .env}
+      JWT_ISSUER: ${JWT_ISSUER:-codevibs}
+      TERMINAL_RUNNER_URL: http://terminal-runner:3000
+      # The backend accepts only Firebase tokens issued for this project (same value the browser build uses).
+      FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:-}
+      TERMINAL_RUNNER_INTERNAL_TOKEN: ${TERMINAL_RUNNER_INTERNAL_TOKEN:?set in .env}
+      JDOODLE_CLIENT_ID: ${JDOODLE_CLIENT_ID:-}
+      JDOODLE_CLIENT_SECRET: ${JDOODLE_CLIENT_SECRET:-}
+      JDOODLE_DISABLED_LANGUAGES: ${JDOODLE_DISABLED_LANGUAGES:-}
+      PROBLEM_PACKAGES_DIR: ${PROBLEM_PACKAGES_DIR:-/data/problem-packages}
+      PROBLEM_PACKAGES_AUTO_PUBLISH: ${PROBLEM_PACKAGES_AUTO_PUBLISH:-true}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "true"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED: "true"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT: "10000"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT: "15000"
+    volumes:
+      # Drop authorized problem-package ZIPs here; the backend imports them automatically (read-only mount).
+      - ./problem-packages:/data/problem-packages:ro
+    expose:
+      - "8080"
+    stop_grace_period: 45s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - default
+      - terminal-app
+
+  frontend:
+    profiles: ["full"]
+    build:
+      context:  ./TeaCode-fontend
+      args:
+        VITE_LEGAL_ENTITY_NAME: ${VITE_LEGAL_ENTITY_NAME:-}
+        VITE_LEGAL_ADDRESS: ${VITE_LEGAL_ADDRESS:-}
+        VITE_PRIVACY_CONTACT_EMAIL: ${VITE_PRIVACY_CONTACT_EMAIL:-}
+        VITE_SUPPORT_EMAIL: ${VITE_SUPPORT_EMAIL:-}
+        VITE_HOSTING_PROVIDER: ${VITE_HOSTING_PROVIDER:-}
+        VITE_EMAIL_PROVIDER: ${VITE_EMAIL_PROVIDER:-}
+        VITE_RETENTION_NOTE: ${VITE_RETENTION_NOTE:-}
+        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}
+        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN:-}
+        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:-}
+        VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:-}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy   # nginx resolves the upstream at start-up, so wait for a ready backend
+      terminal-runner:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - terminal-app
+    ports:
+      - "127.0.0.1:8081:8080"   # put a TLS-terminating proxy in front for production
+
+volumes:
+  mysql-data:
+  # Image store of the sandbox Docker daemon. Create it once on a new machine with
+  # `docker volume create teacode_sandbox-images`, or point SANDBOX_IMAGES_VOLUME in .env at an existing volume.
+  sandbox-images:
+    external: true
+    name: ${SANDBOX_IMAGES_VOLUME:-teacode_sandbox-images}
+
+networks:
+  default: {}
+  terminal-app:
+    driver: bridge
+  runner-control:
+    driver: bridge

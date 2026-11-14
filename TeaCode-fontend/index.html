@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="256x256" href="/favicon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0B0B0C" />
+    <meta name="description" content="TeaCode - code, learn and build. Practice coding problems with real code execution." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="TeaCode" />
+    <meta property="og:title" content="TeaCode - code, learn and build" />
+    <meta property="og:description" content="Practice coding problems with real code execution and real test cases." />
+    <meta name="twitter:card" content="summary" />
+    <title>TeaCode</title>
+    <style>
+      /* First paint before JavaScript loads: the same logo loader the app uses (see BrandLoader.jsx). */
+      html { background: #0B0B0C; color-scheme: dark; }
+      body { margin: 0; background: #0B0B0C; }
+      #boot { min-height: 100vh; display: grid; place-items: center; }
+      #boot .mark { position: relative; width: 240px; max-width: 70vw; animation: boot-breathe 1.8s ease-in-out infinite; }
+      #boot img { display: block; width: 100%; height: auto; }
+      #boot img.dim { opacity: .25; }
+      #boot img.lit {
+        position: absolute; top: 0; left: 0;
+        -webkit-mask-image: linear-gradient(105deg, transparent 30%, #000 50%, transparent 70%);
+        mask-image: linear-gradient(105deg, transparent 30%, #000 50%, transparent 70%);
+        -webkit-mask-size: 300% 100%; mask-size: 300% 100%;
+        -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+        animation: boot-sweep 1.5s linear infinite;
+      }
+      @keyframes boot-sweep { from { -webkit-mask-position: 100% 0; mask-position: 100% 0; } to { -webkit-mask-position: 0% 0; mask-position: 0% 0; } }
+      @keyframes boot-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+      @keyframes boot-fade { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) {
+        #boot .mark { animation: boot-fade 2.4s ease-in-out infinite; }
+        #boot img.lit { animation: none; -webkit-mask-image: none; mask-image: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div id="boot" role="status" aria-label="Loading TeaCode">
+        <div class="mark" aria-hidden="true">
+          <img class="dim" src="/brand/teacode-logo.png" alt="" width="2172" height="724" />
+          <img class="lit" src="/brand/teacode-logo.png" alt="" width="2172" height="724" />
+        </div>
+      </div>
+    </div>
+    <noscript>TeaCode needs JavaScript to run. Please enable JavaScript in your browser and reload this page.</noscript>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

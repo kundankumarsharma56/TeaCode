@@ -1,0 +1,42 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+# Editor-based HTTP Client requests
+/httpRequests/
+# Ignored default folder with query files
+/queries/
+# Datasource local storage ignored files
+/dataSources/
+/dataSources.local.xml
+
+.env
+.env.*
+!.env.example
+
+# Problem packages are operator data (may be licensed/private); keep only the README
+problem-packages/*
+!problem-packages/README.md
+
+# --- TeaCode repo hygiene (step 3) ---
+# dependencies and build output
+node_modules/
+dist/
+target/
+coverage/
+.vite/
+# backup, log and archive files
+*.bak
+*.bak*
+*.log
+*.zip
+*.gz
+*.tar
+*.pem
+*.key
+# editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc

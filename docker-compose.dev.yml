@@ -1,0 +1,8 @@
+# Local HTTP testing only:  docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile full up --build
+# The dev profile turns the Secure flag off on cookies so they work on http://localhost. NEVER use this file in production
+# (the prod profile refuses to start with an http:// APP_PUBLIC_URL or with Secure cookies disabled).
+services:
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      APP_PUBLIC_URL: http://localhost:8081
