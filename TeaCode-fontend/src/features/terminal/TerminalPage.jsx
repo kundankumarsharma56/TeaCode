@@ -607,6 +607,7 @@ export default function TerminalPage() {
                 {renderConsole()}
               </Box>
 
+              {batch && <Box sx={{ px: 1.5, py: 1, borderTop: '1px solid #2A2A2E', bgcolor: '#141415' }}><Typography component="label" htmlFor="terminal-stdin" sx={{ display: 'block', color: '#A8A29C', fontSize: 10.5, mb: 0.5 }}>Program input (optional, one value per line)</Typography><Box component="textarea" id="terminal-stdin" value={stdin} onChange={(event) => setStdin(event.target.value)} rows={3} spellCheck="false" disabled={busy} sx={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', p: 1, border: '1px solid #2A2A2E', borderRadius: 1, bgcolor: '#0B0B0C', color: '#e3eae5', fontFamily: MONO_FONT, fontSize: 12 }} />{stdinTooLong && <Typography sx={{ color: '#ff8c85', fontSize: 11, mt: 0.5 }}>The input is too long.</Typography>}</Box>}
               {!batch && <Box sx={{ px: 1.5, py: 1, borderTop: '1px solid #2A2A2E', bgcolor: '#141415' }}>
                 <Typography sx={{ color: '#A8A29C', fontSize: 10.5, lineHeight: 1.6 }}>
                   {['running', 'waiting'].includes(terminalStatus)
