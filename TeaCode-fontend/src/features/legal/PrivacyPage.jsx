@@ -22,7 +22,7 @@ export default function PrivacyPage() {
         <List items={[
           'To provide the service: authenticate you, run and judge your code, show your history and progress.',
           'To keep the service secure: detect abuse, enforce rate limits, investigate incidents.',
-          'To let you sign in: a one-time sign-in link is emailed to you, which also confirms that you control the address.',
+          'To let you sign in with your email address and password.',
         ]} />
         <P>[The legal basis for each purpose, where the law requires one, must be confirmed by qualified legal counsel.]</P>
       </Section>
@@ -30,7 +30,7 @@ export default function PrivacyPage() {
         <P>We use essential cookies to keep you signed in and protect against cross-site request forgery. We also store your light/dark theme choice in your browser. See the Cookie Policy. We do not currently use analytics or advertising trackers.</P>
       </Section>
       <Section title="5. Who we share data with">
-        <P>Firebase Authentication (Google): when you ask for a sign-in link, your email address is sent to Google's Firebase Authentication service, which sends the email and confirms the link. Google processes it under its own terms and privacy policy.</P>
+        
         <P>JDoodle: your source code and the test inputs are sent to the JDoodle Compiler API to be compiled and run. Our server holds the JDoodle credentials; they are never sent to your browser.</P>
         <P>Hosting provider: <Value value={cfg.hostingProvider} label="hosting provider" />.</P>
         <P>Email delivery provider: <Value value={cfg.emailProvider} label="email delivery provider" />. It receives your email address and the content of the emails we send.</P>

@@ -10,7 +10,7 @@ export default function TermsPage() {
       </Section>
       <Section title="2. Your account">
         <List items={[
-          'You must provide accurate information and keep your email account secure, because sign-in links are sent to it.',
+          'You must provide accurate information and keep your email account and password secure.',
           'You are responsible for activity under your account. Tell us promptly if you suspect unauthorised use.',
           'We may require email verification before some features are available.',
         ]} />
