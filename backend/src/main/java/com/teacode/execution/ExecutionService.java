@@ -132,7 +132,7 @@ public class ExecutionService {
         if (mode != Mode.TERMINAL && user == null) {
             throw new UnauthorizedException("Not signed in.");
         }
-        if (mode != Mode.TERMINAL && !user.isEmailVerified()) {
+        if (mode != Mode.TERMINAL && !"false".equalsIgnoreCase(System.getenv("TEACODE_REQUIRE_EMAIL_VERIFICATION")) && !user.isEmailVerified()) {
             throw new ForbiddenException("EMAIL_NOT_VERIFIED", "Verify your email address to run code.");
         }
         if (!languages.isConfigured()) {

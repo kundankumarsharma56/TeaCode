@@ -151,9 +151,12 @@ function getTerminalStatus(state) {
   return values[state] ?? values.idle;
 }
 
+// Free live demo: there is no interactive runner, so every language uses the one-shot run (VITE_TERMINAL_BATCH=true).
+const BATCH_ALL = import.meta.env.VITE_TERMINAL_BATCH === 'true';
+
 export default function TerminalPage() {
   const T = useT();
-  const langs = useApiData('/terminal/languages');
+  const langs = useApiData(BATCH_ALL ? '/execution/languages' : '/terminal/languages');
   const job = useJob(); // Retained for SQL's existing one-shot compiler path.
   const [language, setLanguage] = useState('');
   // The public Terminal never saves code: it lives in memory only and is gone when the tab closes.
@@ -178,7 +181,7 @@ export default function TerminalPage() {
   const isSql = language === 'sql';
   // Only SQL uses the one-shot compiler. Every other language runs on the isolated interactive runner; if the runner is
   // unavailable the page says so instead of silently sending the source to a different service.
-  const batch = isSql;
+  const batch = isSql || BATCH_ALL;
 
   useEffect(() => {
     if (!initialised.current && languages.length) {
@@ -315,7 +318,7 @@ export default function TerminalPage() {
     setCopied(false);
     // Keep the current workspace view when Run is clicked. Desktop shows editor and console side by side;
     // on mobile, the user can choose the Console tab unless the program is waiting for interactive input.
-    if (isSql) {
+    if (batch) {
       job.start('terminal', { language, sourceCode: code, stdin });
       return;
     }
@@ -412,7 +415,7 @@ export default function TerminalPage() {
       appendTerminal(`\n${text}\n`, 'stderr');
       setTerminalStatus('error');
     }
-  }, [appendTerminal, canRun, code, isSql, job, language, stdin]);
+  }, [appendTerminal, batch, canRun, code, isSql, job, language, stdin]);
 
   const submitTerminalInput = (event) => {
     // Ctrl+D (Cmd+D is left to the browser) ends standard input, like a real terminal. Programs that read until
@@ -502,7 +505,7 @@ export default function TerminalPage() {
       );
     }
 
-    if (job.phase === 'idle') return <Box sx={{ py: 2, color: '#A8A29C' }}><Typography sx={{ fontFamily: MONO_FONT, fontSize: 13 }}>Ready to run.</Typography><Typography sx={{ mt: 0.75, fontSize: 12, lineHeight: 1.65 }}>SQL uses the configured compiler's existing one-shot execution path.</Typography></Box>;
+    if (job.phase === 'idle') return <Box sx={{ py: 2, color: '#A8A29C' }}><Typography sx={{ fontFamily: MONO_FONT, fontSize: 13 }}>Ready to run.</Typography><Typography sx={{ mt: 0.75, fontSize: 12, lineHeight: 1.65 }}>{BATCH_ALL ? 'Write your code, add input below if your program reads it, then click Run. The output appears here.' : "SQL uses the configured compiler's existing one-shot execution path."}</Typography></Box>;
     if (job.phase === 'starting' || job.phase === 'polling') return <Stack direction="row" spacing={1.25} alignItems="center" role="status" aria-live="polite" sx={{ py: 1, color: '#A8A29C' }}><CircularProgress size={16} sx={{ color: '#E07B54' }} /><Typography sx={{ fontSize: 13 }}>{job.phase === 'starting' ? 'Submitting code to the execution service…' : result?.state === 'RUNNING' ? 'Execution service is running your code…' : 'Waiting for the execution service…'}</Typography></Stack>;
     if (job.phase === 'error') return <Alert variant="outlined" severity={job.error?.kind === 'service' ? 'warning' : 'error'} role="alert" sx={{ fontSize: 13 }}>{ERROR_TEXT[job.error?.kind] ?? ERROR_TEXT.other}</Alert>;
     if (result?.state === 'FAILED') return <Alert severity="error" variant="outlined" role="alert" sx={{ fontSize: 13 }}>{ERROR_TEXT[CODE_KIND[result.errorCode] ?? 'other']}</Alert>;
