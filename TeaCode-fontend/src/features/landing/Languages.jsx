@@ -18,6 +18,8 @@ export default function Languages() {
   const { status, data } = useApiData('/execution/languages');
   const langs = Array.isArray(data) ? data : [];
 
+  if (status === 'success' && langs.length === 0) return null;
+
   let body;
   if (status === 'loading') {
     body = (

@@ -9,6 +9,8 @@ import { useAuth } from '../../hooks/useAuth.js';
 import { POLICY_VERSION } from '../../config/legal.js';
 
 const initial = { username: '', email: '', password: '', acceptPolicies: false };
+const OAUTH_ON = import.meta.env.VITE_OAUTH_ENABLED !== 'false';
+const MAIL_ON = import.meta.env.VITE_MAIL_ENABLED !== 'false';
 
 // TeaCode auth form styling.
 const FIELD_SX = { '& .MuiOutlinedInput-root': { borderRadius: '10px' } };
@@ -84,13 +86,13 @@ export default function LoginPage() {
             {isRegister ? (
               <FormControlLabel control={<Checkbox checked={values.acceptPolicies} onChange={update('acceptPolicies')} />} sx={{ alignItems: 'flex-start', ml: 0 }} label={<Typography variant="body2">I agree to the <MuiLink component={RouterLink} to="/terms">Terms and Conditions</MuiLink> and <MuiLink component={RouterLink} to="/privacy">Privacy Policy</MuiLink>.</Typography>} />
             ) : (
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}><MuiLink component={RouterLink} to="/forgot-password" underline="hover" variant="body2">Forgot password?</MuiLink></Box>
+              <Box sx={{ display: MAIL_ON ? 'flex' : 'none', justifyContent: 'flex-end' }}><MuiLink component={RouterLink} to="/forgot-password" underline="hover" variant="body2">Forgot password?</MuiLink></Box>
             )}
             <Button type="submit" variant="contained" size="large" disabled={busy} fullWidth sx={PRIMARY_SX}>{busy ? 'Please wait…' : isRegister ? 'Create account' : 'Sign in'}</Button>
           </Stack>
         </Box>
-        <Divider><Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>OR CONTINUE WITH</Typography></Divider>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.2}>
+        <Divider sx={OAUTH_ON ? undefined : { display: 'none' }}><Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>OR CONTINUE WITH</Typography></Divider>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.2} sx={OAUTH_ON ? undefined : { display: 'none' }}>
           <Button variant="outlined" fullWidth startIcon={<Google />} onClick={() => oauth('google')} sx={OAUTH_SX}>Google</Button>
           <Button variant="outlined" fullWidth startIcon={<GitHub />} onClick={() => oauth('github')} sx={OAUTH_SX}>GitHub</Button>
         </Stack>
