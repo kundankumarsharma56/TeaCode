@@ -248,6 +248,10 @@ public class ExecutionService {
 
     /** Compile-only call for compiled languages. Returns the compiler output when compilation failed, else null. */
     private String compileError(LanguageRegistry.Lang lang, String source) {
+        // A separate compile-only call costs one extra JDoodle credit per run. Off by default; the real run reports compile errors.
+        if (!"true".equalsIgnoreCase(System.getenv("TEACODE_COMPILE_PRECHECK"))) {
+            return null;
+        }
         if (!lang.compiled()) {
             return null;
         }
