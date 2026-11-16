@@ -110,6 +110,8 @@ public class JdoodleClient {
             Thread.currentThread().interrupt();
             throw new ServiceUnavailableException(UNAVAILABLE, "The code execution service is unavailable.");
         } catch (RestClientResponseException e) {
+            String detail = e.getResponseBodyAsString();
+            log.warn("JDoodle error text (HTTP {}): {}", e.getStatusCode().value(), detail == null ? "" : (detail.length() > 200 ? detail.substring(0, 200) : detail));
             throw fromStatus(e.getStatusCode().value());
         } catch (RestClientException e) {
             // Message class only: never the exception text, which could echo the request.
@@ -130,6 +132,7 @@ public class JdoodleClient {
         }
         Integer code = r.statusCode();
         if (r.error() != null || (code != null && code != 200)) {
+            log.warn("JDoodle error text (body status {}): {}", code, r.error() == null ? "" : (r.error().length() > 200 ? r.error().substring(0, 200) : r.error()));
             throw fromStatus(code == null ? 0 : code);
         }
         if (r.output() == null && r.compilationStatus() == null) {
