@@ -514,7 +514,7 @@ export default function TerminalPage() {
       );
     }
 
-    if (job.phase === 'idle') return <Box sx={{ py: 2, color: '#A8A29C' }}><Typography sx={{ fontFamily: MONO_FONT, fontSize: 13 }}>Ready to run.</Typography><Typography sx={{ mt: 0.75, fontSize: 12, lineHeight: 1.65 }}>{(BATCH_ALL || oneShot) ? 'Write your code, add input below if your program reads it, then click Run. The output appears here.' : "SQL uses the configured compiler's existing one-shot execution path."}</Typography></Box>;
+    if (job.phase === 'idle') return <Box sx={{ py: 2, color: '#A8A29C' }}><Typography sx={{ fontFamily: MONO_FONT, fontSize: 13 }}>Ready to run.</Typography><Typography sx={{ mt: 0.75, fontSize: 12, lineHeight: 1.65 }}>{(BATCH_ALL || oneShot) ? 'Write your code, type any input for your program at the top of this console, then click Run. The output appears here.' : "SQL uses the configured compiler's existing one-shot execution path."}</Typography></Box>;
     if (job.phase === 'starting' || job.phase === 'polling') return <Stack direction="row" spacing={1.25} alignItems="center" role="status" aria-live="polite" sx={{ py: 1, color: '#A8A29C' }}><CircularProgress size={16} sx={{ color: '#E07B54' }} /><Typography sx={{ fontSize: 13 }}>{job.phase === 'starting' ? 'Submitting code to the execution service…' : result?.state === 'RUNNING' ? 'Execution service is running your code…' : 'Waiting for the execution service…'}</Typography></Stack>;
     if (job.phase === 'error') return <Alert variant="outlined" severity={job.error?.kind === 'service' ? 'warning' : 'error'} role="alert" sx={{ fontSize: 13 }}>{ERROR_TEXT[job.error?.kind] ?? ERROR_TEXT.other}</Alert>;
     if (result?.state === 'FAILED') return <Alert severity="error" variant="outlined" role="alert" sx={{ fontSize: 13 }}>{ERROR_TEXT[CODE_KIND[result.errorCode] ?? 'other']}</Alert>;
@@ -613,10 +613,16 @@ export default function TerminalPage() {
               </Box>
 
               <Box ref={outputRef} sx={{ flex: '1 1 auto', minHeight: 190, p: { xs: 1.5, sm: 2 }, overflow: 'auto', overscrollBehavior: 'contain', bgcolor: '#0B0B0C', fontFamily: MONO_FONT, fontSize: 13 }}>
+                {batch && (
+                  <Box sx={{ mb: 1.5, pb: 1.25, borderBottom: '1px dashed #2A2A2E' }}>
+                    <Typography component="label" htmlFor="terminal-stdin" sx={{ display: 'block', color: '#7ddc95', fontFamily: MONO_FONT, fontSize: 11.5, mb: 0.5 }}>Input (one value per line, before you click Run)</Typography>
+                    <Box component="textarea" id="terminal-stdin" value={stdin} onChange={(event) => setStdin(event.target.value)} rows={2} spellCheck="false" disabled={busy} placeholder="Type the input your program reads, then click Run" sx={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', p: 0, m: 0, border: 0, outline: 0, bgcolor: 'transparent', color: '#9ecbff', fontFamily: MONO_FONT, fontSize: 13, lineHeight: 1.65, '&::placeholder': { color: '#6b7a70' } }} />
+                    {stdinTooLong && <Typography sx={{ color: '#ff8c85', fontSize: 11, mt: 0.5 }}>The input is too long.</Typography>}
+                  </Box>
+                )}
                 {renderConsole()}
               </Box>
 
-              {batch && <Box sx={{ px: 1.5, py: 1, borderTop: '1px solid #2A2A2E', bgcolor: '#141415' }}><Typography component="label" htmlFor="terminal-stdin" sx={{ display: 'block', color: '#A8A29C', fontSize: 10.5, mb: 0.5 }}>Program input (optional, one value per line)</Typography><Box component="textarea" id="terminal-stdin" value={stdin} onChange={(event) => setStdin(event.target.value)} rows={3} spellCheck="false" disabled={busy} sx={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', p: 1, border: '1px solid #2A2A2E', borderRadius: 1, bgcolor: '#0B0B0C', color: '#e3eae5', fontFamily: MONO_FONT, fontSize: 12 }} />{stdinTooLong && <Typography sx={{ color: '#ff8c85', fontSize: 11, mt: 0.5 }}>The input is too long.</Typography>}</Box>}
               {!batch && <Box sx={{ px: 1.5, py: 1, borderTop: '1px solid #2A2A2E', bgcolor: '#141415' }}>
                 <Typography sx={{ color: '#A8A29C', fontSize: 10.5, lineHeight: 1.6 }}>
                   {['running', 'waiting'].includes(terminalStatus)
