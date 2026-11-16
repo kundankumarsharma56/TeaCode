@@ -97,7 +97,8 @@ public class JdoodleClient {
             if (!acquired) {
                 throw new ServiceUnavailableException(BUSY, "The execution service is busy. Please try again shortly.");
             }
-            Request body = new Request(clientId, clientSecret, spec.script(),
+            String script = normalizeJava(spec.language(), spec.script());
+            Request body = new Request(clientId, clientSecret, script,
                     spec.stdin() == null || spec.stdin().isEmpty() ? null : spec.stdin(),
                     spec.language(), spec.versionIndex(), spec.compileOnly() ? Boolean.TRUE : null);
             Response r = client.post().uri("/v1/execute")
@@ -143,6 +144,13 @@ public class JdoodleClient {
                 r.compilationStatus());
     }
 
+    /** JDoodle compiles Java from the public class, so a plain "class Main" is rejected there. Make it public when no class is. */
+    static String normalizeJava(String language, String script) {
+        if (script == null || !"java".equals(language) || script.contains("public class")) {
+            return script;
+        }
+        return script.replaceFirst("(?m)^(\\s*)class\\s+Main\\b", "$1public class Main");
+    }
     private ServiceUnavailableException fromStatus(int status) {
         log.warn("JDoodle rejected the request with status {}", status);
         return switch (status) {
