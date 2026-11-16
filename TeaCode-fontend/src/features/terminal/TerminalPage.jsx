@@ -162,6 +162,8 @@ export default function TerminalPage() {
   // The public Terminal never saves code: it lives in memory only and is gone when the tab closes.
   const [codeByLang, setCodeByLang] = useState({});
   const [stdin, setStdin] = useState('');
+  // Set when the interactive runner is unavailable (for example the free live demo): runs then use the one-shot compiler.
+  const [oneShot, setOneShot] = useState(false);
   const [terminalDraft, setTerminalDraft] = useState('');
   const [terminalChunks, setTerminalChunks] = useState([]);
   const [terminalStatus, setTerminalStatus] = useState('idle');
@@ -181,7 +183,7 @@ export default function TerminalPage() {
   const isSql = language === 'sql';
   // Only SQL uses the one-shot compiler. Every other language runs on the isolated interactive runner; if the runner is
   // unavailable the page says so instead of silently sending the source to a different service.
-  const batch = isSql || BATCH_ALL;
+  const batch = isSql || BATCH_ALL || oneShot;
 
   useEffect(() => {
     if (!initialised.current && languages.length) {
@@ -409,13 +411,20 @@ export default function TerminalPage() {
     } catch (error) {
       if (generation !== generationRef.current) return;
       const status = error?.response?.status;
+      if (status === 503 && !oneShot) {
+        // No interactive runner on this host: switch to the one-shot compiler and run the code that way.
+        setOneShot(true);
+        setTerminalStatus('idle');
+        job.start('terminal', { language, sourceCode: code, stdin });
+        return;
+      }
       const text = status === 403 ? FORBIDDEN_MESSAGE
         : status === 429 ? 'The interactive runner is busy or you are sending requests too fast. Wait a moment and try again.'
         : error?.response?.data?.message || (error?.response ? null : error?.message) || 'Interactive execution is unavailable.';
       appendTerminal(`\n${text}\n`, 'stderr');
       setTerminalStatus('error');
     }
-  }, [appendTerminal, batch, canRun, code, isSql, job, language, stdin]);
+  }, [appendTerminal, batch, canRun, code, job, language, oneShot, stdin]);
 
   const submitTerminalInput = (event) => {
     // Ctrl+D (Cmd+D is left to the browser) ends standard input, like a real terminal. Programs that read until
@@ -505,7 +514,7 @@ export default function TerminalPage() {
       );
     }
 
-    if (job.phase === 'idle') return <Box sx={{ py: 2, color: '#A8A29C' }}><Typography sx={{ fontFamily: MONO_FONT, fontSize: 13 }}>Ready to run.</Typography><Typography sx={{ mt: 0.75, fontSize: 12, lineHeight: 1.65 }}>{BATCH_ALL ? 'Write your code, add input below if your program reads it, then click Run. The output appears here.' : "SQL uses the configured compiler's existing one-shot execution path."}</Typography></Box>;
+    if (job.phase === 'idle') return <Box sx={{ py: 2, color: '#A8A29C' }}><Typography sx={{ fontFamily: MONO_FONT, fontSize: 13 }}>Ready to run.</Typography><Typography sx={{ mt: 0.75, fontSize: 12, lineHeight: 1.65 }}>{(BATCH_ALL || oneShot) ? 'Write your code, add input below if your program reads it, then click Run. The output appears here.' : "SQL uses the configured compiler's existing one-shot execution path."}</Typography></Box>;
     if (job.phase === 'starting' || job.phase === 'polling') return <Stack direction="row" spacing={1.25} alignItems="center" role="status" aria-live="polite" sx={{ py: 1, color: '#A8A29C' }}><CircularProgress size={16} sx={{ color: '#E07B54' }} /><Typography sx={{ fontSize: 13 }}>{job.phase === 'starting' ? 'Submitting code to the execution service…' : result?.state === 'RUNNING' ? 'Execution service is running your code…' : 'Waiting for the execution service…'}</Typography></Stack>;
     if (job.phase === 'error') return <Alert variant="outlined" severity={job.error?.kind === 'service' ? 'warning' : 'error'} role="alert" sx={{ fontSize: 13 }}>{ERROR_TEXT[job.error?.kind] ?? ERROR_TEXT.other}</Alert>;
     if (result?.state === 'FAILED') return <Alert severity="error" variant="outlined" role="alert" sx={{ fontSize: 13 }}>{ERROR_TEXT[CODE_KIND[result.errorCode] ?? 'other']}</Alert>;
