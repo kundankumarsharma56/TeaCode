@@ -63,6 +63,7 @@ public class JdoodleClient {
     private final String clientId;
     private final String clientSecret;
     private final boolean configured;
+    private final Judge0Client judge0 = new Judge0Client();
     private final Semaphore gate;
     private final long gateWaitSeconds;
 
@@ -87,6 +88,9 @@ public class JdoodleClient {
     }
 
     public Result execute(RunSpec spec) {
+        if (Judge0Client.enabled()) {
+            return judge0.execute(spec);
+        }
         if (!configured) {
             throw new ServiceUnavailableException(NOT_CONFIGURED,
                     "Code execution is not configured on this server (JDoodle credentials are missing).");

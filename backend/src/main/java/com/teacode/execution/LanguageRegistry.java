@@ -61,7 +61,7 @@ public class LanguageRegistry {
     private final Set<String> disabled;
 
     public LanguageRegistry(AppProperties props) {
-        this.configured = props.jdoodle().configured();
+        this.configured = Judge0Client.enabled() || props.jdoodle().configured();
         this.disabled = props.jdoodle().disabledLanguageKeys();
     }
 
@@ -70,7 +70,7 @@ public class LanguageRegistry {
         if (!configured) {
             return List.of();
         }
-        return ALL.stream().filter(l -> !disabled.contains(l.key())).toList();
+        return ALL.stream().filter(l -> !disabled.contains(l.key()) && !(Judge0Client.enabled() && l.kind() == Kind.DATABASE)).toList();
     }
 
     /**

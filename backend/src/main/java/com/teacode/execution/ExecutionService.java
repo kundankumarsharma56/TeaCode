@@ -265,6 +265,9 @@ public class ExecutionService {
         }
         checkDeadline(deadline);
         JdoodleClient.Result r = jdoodle.execute(new JdoodleClient.RunSpec(lang.jdoodleLanguage(), lang.versionIndex(), source, stdin, false));
+        if (r.compilationStatus() != null && r.compilationStatus() == 1) {
+            return new JobResult("COMPILATION_ERROR", null, null, null, null, cap(r.output(), CAP_COMPILE), null, null, null);
+        }
         String status = switch (OutputSignals.classify(r.output())) {
             case TIME_LIMIT -> "TIME_LIMIT_EXCEEDED";
             case RUNTIME_ERROR -> "RUNTIME_ERROR";
@@ -304,6 +307,9 @@ public class ExecutionService {
             checkDeadline(deadline);
             JdoodleClient.Result r = jdoodle.execute(new JdoodleClient.RunSpec(
                     lang.jdoodleLanguage(), lang.versionIndex(), source, tc.getInputData(), false));
+            if (r.compilationStatus() != null && r.compilationStatus() == 1) {
+                return new JobResult("COMPILATION_ERROR", 0, cases.size(), null, null, cap(r.output(), CAP_COMPILE), null, null, List.of());
+            }
             String verdict = verdict(r, tc, spec);
             Integer ms = toMs(r.cpuSeconds());
             maxMs = Math.max(maxMs, ms == null ? 0 : ms);

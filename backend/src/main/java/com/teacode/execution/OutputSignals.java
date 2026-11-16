@@ -18,7 +18,7 @@ final class OutputSignals {
     private static final List<String> RUNTIME = List.of(
             "traceback (most recent call last)", "exception in thread", "segmentation fault", "core dumped",
             "unhandled exception", "panicked at", "terminate called after throwing", "uncaught referenceerror",
-            "uncaught typeerror", "fatal error:", "killed");
+            "uncaught typeerror", "fatal error:", "killed", "runtime error (");
 
     private OutputSignals() {
     }
