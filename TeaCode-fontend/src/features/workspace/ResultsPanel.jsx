@@ -41,7 +41,7 @@ export const CODE_KIND = {
 export const ERROR_TEXT = {
   not_configured: 'Code execution is not set up on this server yet, so nothing was run.',
   credentials: 'The execution service rejected this server\'s credentials. The operator needs to check them. Your code was not judged.',
-  quota: 'The daily code-execution quota is used up. Your code was not judged. Please try again later.',
+  quota: 'The free daily limit for running code is used up, so your code was not run. It resets at 12:00 AM UTC (5:30 AM IST). Please try again after that.',
   busy: 'The execution service is busy right now. Your code was not judged. Please try again shortly.',
   no_tests: 'No test data is available for this problem, so it cannot be judged.',
   too_large: 'This problem has more tests than this server is configured to run in one submission.',

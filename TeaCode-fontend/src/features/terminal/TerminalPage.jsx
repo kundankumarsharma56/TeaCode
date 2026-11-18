@@ -187,6 +187,8 @@ export default function TerminalPage() {
   const [activeView, setActiveView] = useState('editor');
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 900);
   const [copied, setCopied] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [fontSize, setFontSize] = useState(EDITOR_FONT_SIZE);
   const workspaceRef = useRef(null);
   const outputRef = useRef(null);
   const dragging = useRef(false);
@@ -350,6 +352,7 @@ export default function TerminalPage() {
     // on mobile, the user can choose the Console tab unless the program is waiting for interactive input.
     if (replayMode) {
       // Replay style: a fresh Run starts with no input; each value typed afterwards re-runs the program (see submitReplayInput).
+      if (isMobile) setActiveView('console');
       setReplay(EMPTY_REPLAY);
       setTerminalDraft('');
       job.start('terminal', { language, sourceCode: code, stdin: '' });
@@ -459,7 +462,20 @@ export default function TerminalPage() {
       appendTerminal(`\n${text}\n`, 'stderr');
       setTerminalStatus('error');
     }
-  }, [appendTerminal, batch, canRun, code, job, language, oneShot, replayMode, stdin]);
+  }, [appendTerminal, batch, canRun, code, isMobile, job, language, oneShot, replayMode, stdin]);
+
+  // Ctrl+Enter (Cmd+Enter on a Mac) runs the code, also while the cursor is in the editor.
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        runCode();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [runCode]);
 
   const submitReplayInput = (event) => {
     if (event.key !== 'Enter' || event.shiftKey) return;
@@ -524,6 +540,24 @@ export default function TerminalPage() {
     setTerminalChunks([]);
     setTerminalDraft('');
     setCopied(false);
+  };
+
+  const copyCode = async () => {
+    setCodeCopied(await copyText(code));
+    window.setTimeout(() => setCodeCopied(false), 1800);
+  };
+
+  const downloadCode = () => {
+    const name = language === 'java' ? 'Main.java' : `main${selectedLanguage?.extension ?? '.txt'}`;
+    const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   };
 
   const copyOutput = async () => {
@@ -639,7 +673,7 @@ export default function TerminalPage() {
                 <span><Button size="small" disabled={batch || !terminalBusy} onClick={stopInteractive} startIcon={<StopRoundedIcon />} sx={{ minWidth: 0, px: { xs: 0.75, sm: 1.25 }, minHeight: 36, color: INK, textTransform: 'none', '&.Mui-disabled': { color: MUTED, opacity: 0.65 } }} aria-label={batch ? 'Stop execution (unsupported for one-shot runs)' : 'Stop execution'}>Stop</Button></span>
               </Tooltip>
               <Button size="small" disabled={batch && sqlBusy} onClick={resetCode} startIcon={<RestartAltRoundedIcon />} sx={{ minWidth: 0, px: { xs: 0.75, sm: 1.25 }, minHeight: 36, color: INK, textTransform: 'none', '&.Mui-disabled': { color: MUTED, opacity: 0.65 } }}>Reset</Button>
-              <Button variant="contained" size="small" disabled={!canRun} onClick={runCode} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <PlayArrowRoundedIcon />} sx={{ minHeight: 36, px: { xs: 1.25, sm: 1.75 }, bgcolor: '#E07B54', color: '#0B0B0C', fontWeight: 700, textTransform: 'none', boxShadow: 'none', '&:hover': { bgcolor: '#EE8C66', boxShadow: 'none' }, '&.Mui-disabled': { bgcolor: 'rgba(224,123,84,.22)', color: '#8f857e' } }}>{busy ? 'Running' : 'Run'}</Button>
+              <Button variant="contained" size="small" title="Run (Ctrl+Enter)" disabled={!canRun} onClick={runCode} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <PlayArrowRoundedIcon />} sx={{ minHeight: 36, px: { xs: 1.25, sm: 1.75 }, bgcolor: '#E07B54', color: '#0B0B0C', fontWeight: 700, textTransform: 'none', boxShadow: 'none', '&:hover': { bgcolor: '#EE8C66', boxShadow: 'none' }, '&.Mui-disabled': { bgcolor: 'rgba(224,123,84,.22)', color: '#8f857e' } }}>{busy ? 'Running' : 'Run'}</Button>
             </Stack>
           </Box>
 
@@ -647,6 +681,12 @@ export default function TerminalPage() {
             <Box sx={{ minWidth: 0, display: isMobile && activeView !== 'editor' ? 'none' : 'flex', flexDirection: 'column', p: 0, border: `1px solid ${T(BORDER)}`, borderRadius: 0, overflow: 'hidden', bgcolor: T('#0B0B0C'), '& .MuiAutocomplete-root': { display: 'none' }, '& .MuiOutlinedInput-root': { bgcolor: T(SURFACE) }, '& .MuiOutlinedInput-notchedOutline': { borderColor: T(BORDER) }, '& .MuiButton-outlined': { borderColor: T(BORDER), color: T('#475569') } }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0, minHeight: 47, px: 1.75, flexShrink: 0, bgcolor: T('#141415'), borderBottom: `1px solid ${T(BORDER)}` }}>
                 <Stack direction="row" spacing={0.75} alignItems="center"><CodeRoundedIcon sx={{ fontSize: 16, color: T(MUTED) }} /><Typography sx={{ fontSize: 11, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: T('#C5CFDD') }}>Code Editor</Typography></Stack>
+                <Stack direction="row" spacing={0.25} alignItems="center">
+                  <Tooltip title="Smaller text"><span><IconButton size="small" aria-label="Smaller editor text" disabled={fontSize <= 11} onClick={() => setFontSize((value) => Math.max(11, value - 1))} sx={{ color: T(MUTED), borderRadius: 1, '&.Mui-disabled': { color: '#4d4a47' } }}><Typography component="span" sx={{ fontSize: 12, fontWeight: 700, lineHeight: 1 }}>A-</Typography></IconButton></span></Tooltip>
+                  <Tooltip title="Larger text"><span><IconButton size="small" aria-label="Larger editor text" disabled={fontSize >= 22} onClick={() => setFontSize((value) => Math.min(22, value + 1))} sx={{ color: T(MUTED), borderRadius: 1, '&.Mui-disabled': { color: '#4d4a47' } }}><Typography component="span" sx={{ fontSize: 14, fontWeight: 700, lineHeight: 1 }}>A+</Typography></IconButton></span></Tooltip>
+                  <Tooltip title={codeCopied ? 'Copied' : 'Copy code'}><span><IconButton size="small" aria-label="Copy code" onClick={copyCode} sx={{ color: codeCopied ? T(ACCENT) : T(MUTED), borderRadius: 1 }}><ContentCopyRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
+                  <Tooltip title="Download code file"><span><IconButton size="small" aria-label="Download code file" onClick={downloadCode} sx={{ color: T(MUTED), borderRadius: 1 }}><DownloadRoundedIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
+                </Stack>
                 <Typography sx={{ color: T(MUTED), fontSize: 11 }}>{selectedLanguage?.extension ? `main${selectedLanguage.extension}` : 'source'} · {code.split('\n').length} lines</Typography>
               </Stack>
               <Box sx={{ border: 0, borderRadius: 0, overflow: 'hidden', flex: '1 1 auto', minHeight: isMobile ? 420 : 590, bgcolor: '#0B0B0C' }}>
@@ -657,7 +697,7 @@ export default function TerminalPage() {
                   value={code}
                   theme="vs-dark"
                   onChange={(value) => setCodeByLang((previous) => ({ ...previous, [language]: value ?? '' }))}
-                  options={{ fontSize: EDITOR_FONT_SIZE, automaticLayout: true, minimap: { enabled: false }, scrollBeyondLastLine: false, tabSize: 4, ariaLabel: 'Code editor', padding: { top: 16, bottom: 16 }, roundedSelection: false, overviewRulerBorder: false, scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 } }}
+                  options={{ fontSize, automaticLayout: true, minimap: { enabled: false }, scrollBeyondLastLine: false, tabSize: 4, ariaLabel: 'Code editor', padding: { top: 16, bottom: 16 }, roundedSelection: false, overviewRulerBorder: false, scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 } }}
                   loading="Loading editor…"
                 />
               </Box>
@@ -690,6 +730,7 @@ export default function TerminalPage() {
                   </Box>
                 )}
                 {renderConsole()}
+                {replayMode && <Typography sx={{ mt: 1.5, color: '#6b6560', fontSize: 11, lineHeight: 1.6 }}>Free live demo: every Run, and every input you type, uses one run of the shared daily limit. If the limit is reached, try again after 5:30 AM IST (12:00 AM UTC).</Typography>}
               </Box>
 
               {!batch && <Box sx={{ px: 1.5, py: 1, borderTop: '1px solid #2A2A2E', bgcolor: '#141415' }}>
