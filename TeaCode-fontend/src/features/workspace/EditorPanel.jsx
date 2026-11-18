@@ -24,7 +24,7 @@ export async function copyText(text) {
   }
 }
 
-export default function EditorPanel({ languages, language, onLanguageChange, code, onCodeChange, fontSize, onFontSizeChange, onReset, resetLabel = 'Reset code', height = '420px' }) {
+export default function EditorPanel({ languages, language, onLanguageChange, code, onCodeChange, fontSize, onFontSizeChange, onReset, resetLabel = 'Reset code', height = '420px', fill = false }) {
   const { mode } = useColorMode();
   const [copied, setCopied] = useState('');
   const selected = languages.find((l) => l.key === language) ?? null;
@@ -35,8 +35,8 @@ export default function EditorPanel({ languages, language, onLanguageChange, cod
   };
 
   return (
-    <Stack spacing={1.5}>
-      <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+    <Stack spacing={fill ? 0 : 1.5} sx={fill ? { flex: '1 1 auto', minHeight: 0 } : undefined}>
+      <Stack direction="row" spacing={fill ? 1 : 1.5} useFlexGap sx={fill ? { flexWrap: 'wrap', alignItems: 'center', px: 1.5, py: 1, border: 1, borderBottom: 0, borderColor: 'divider', bgcolor: 'background.default' } : { flexWrap: 'wrap', alignItems: 'center' }}>
         {/* Searchable: type to filter the language list; keyboard and screen-reader friendly (combobox). */}
         <Autocomplete
           size="small"
@@ -63,9 +63,9 @@ export default function EditorPanel({ languages, language, onLanguageChange, cod
         <Button startIcon={<RestartAltIcon />} onClick={onReset} variant="outlined" size="small" sx={TOOL_BTN_SX}>{resetLabel}</Button>
         <Box role="status" aria-live="polite" sx={{ fontSize: 13, color: 'text.secondary', minWidth: 70 }}>{copied}</Box>
       </Stack>
-      <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper', overflow: 'hidden' }}>
+      <Box sx={fill ? { border: 1, borderColor: 'divider', borderRadius: 0, bgcolor: 'background.paper', overflow: 'hidden', flex: '1 1 auto', minHeight: 0 } : { border: 1, borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper', overflow: 'hidden' }}>
         <Editor
-          height={height}
+          height={fill ? '100%' : height}
           path={`solution.${language}`}
           language={monacoLanguage(language)}
           value={code}

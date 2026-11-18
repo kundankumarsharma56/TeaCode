@@ -213,11 +213,11 @@ export default function WorkspacePage() {
           />
 
           {/* RIGHT: code editor */}
-          <Stack spacing={1.5} sx={{ minWidth: 0, minHeight: 0, overflow: { lg: 'auto' } }}>
+          <Stack spacing={1.5} sx={{ minWidth: 0, minHeight: 0, overflow: { lg: 'auto' }, height: { lg: '100%' } }}>
             {langs.status === 'error' || languages.length === 0 ? (
               <Alert severity="warning" variant="outlined">Running and submitting code is switched off on this free live demo, so there is no code editor here. You can still read the problem and its examples. Code execution works in the local Docker version.</Alert>
             ) : (
-              <Paper variant="outlined" sx={{ ...PANEL_SX, p: { xs: 1.25, sm: 1.5 }, minWidth: 0 }}>
+              <Paper variant="outlined" sx={{ ...PANEL_SX, p: { xs: 1.25, lg: 0 }, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', flex: { lg: '1 1 auto' }, minHeight: { lg: 0 } }}>
                 <EditorPanel
                   languages={languages}
                   language={language}
@@ -227,7 +227,7 @@ export default function WorkspacePage() {
                   fontSize={fontSize}
                   onFontSizeChange={setFontSize}
                   onReset={() => { clearDraft(userId, slug, language); setCodeByLang((prev) => ({ ...prev, [language]: starterByLang[language] ?? '' })); }}
-                  height={editorHeight}
+                  height={editorHeight} fill={isWide}
                 />
               </Paper>
             )}
