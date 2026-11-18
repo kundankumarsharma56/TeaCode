@@ -153,6 +153,21 @@ function getTerminalStatus(state) {
 
 // Free live demo: there is no interactive runner, so every language uses the one-shot run (VITE_TERMINAL_BATCH=true).
 const BATCH_ALL = import.meta.env.VITE_TERMINAL_BATCH === 'true';
+// Replay-style console for the one-shot runner. JDoodle cannot pause for input, so a program that asks for input ends
+// with a time-out or an end-of-input error. The console then shows an input line; each value typed runs the program
+// again with all values so far, and the typed values are shown after the prompts like in a real terminal.
+const EMPTY_REPLAY = { committed: '', prevRaw: '', count: 0, inputs: [] };
+const MAX_REPLAY_INPUTS = 20;
+const WAIT_TIMEOUT = /\s*JDoodle\s*-\s*Timeout[\s\S]*$/i;
+const WAIT_EOF = /\s*(Traceback \(most recent call last\)|Exception in thread)[\s\S]*$/;
+
+function replayView(result) {
+  const raw = [result?.compileOutput, result?.stdout, result?.stderr].filter(Boolean).join('\n');
+  if (!result || result.state === 'FAILED' || result.compileOutput) return { text: raw, waiting: false };
+  if (result.status === 'TIME_LIMIT_EXCEEDED' && WAIT_TIMEOUT.test(raw)) return { text: raw.replace(WAIT_TIMEOUT, ''), waiting: true };
+  if (result.status === 'RUNTIME_ERROR' && /EOFError|NoSuchElementException/.test(raw)) return { text: raw.replace(WAIT_EOF, ''), waiting: true };
+  return { text: raw, waiting: false };
+}
 
 export default function TerminalPage() {
   const T = useT();
@@ -164,6 +179,7 @@ export default function TerminalPage() {
   const [stdin, setStdin] = useState('');
   // Set when the interactive runner is unavailable (for example the free live demo): runs then use the one-shot compiler.
   const [oneShot, setOneShot] = useState(false);
+  const [replay, setReplay] = useState(EMPTY_REPLAY);
   const [terminalDraft, setTerminalDraft] = useState('');
   const [terminalChunks, setTerminalChunks] = useState([]);
   const [terminalStatus, setTerminalStatus] = useState('idle');
@@ -184,6 +200,7 @@ export default function TerminalPage() {
   // Only SQL uses the one-shot compiler. Every other language runs on the isolated interactive runner; if the runner is
   // unavailable the page says so instead of silently sending the source to a different service.
   const batch = isSql || BATCH_ALL || oneShot;
+  const replayMode = batch && !isSql;
 
   useEffect(() => {
     if (!initialised.current && languages.length) {
@@ -249,6 +266,7 @@ export default function TerminalPage() {
 
   const selectLanguage = (nextLanguage) => {
     if (!nextLanguage || nextLanguage === language) return;
+    setReplay(EMPTY_REPLAY);
     setLanguage(nextLanguage);
     setStdin('');
     setTerminalDraft('');
@@ -265,7 +283,7 @@ export default function TerminalPage() {
   const terminalBusy = ['connecting', 'preparing', 'compiling', 'running', 'waiting', 'stopping'].includes(terminalStatus);
   const busy = batch ? sqlBusy : terminalBusy;
   const result = job.job;
-  const status = batch ? getExecutionStatus(job.phase, result, job.error) : getTerminalStatus(terminalStatus);
+  const status = replayMode && job.phase === 'done' && replayView(result).waiting ? { label: 'Waiting for input', tone: 'running' } : batch ? getExecutionStatus(job.phase, result, job.error) : getTerminalStatus(terminalStatus);
   const canRun = Boolean(language) && code.trim().length > 0 && !sourceTooLong && (!batch || !stdinTooLong) && !busy;
   const outputText = batch
     ? [result?.compileOutput, result?.stdout, result?.stderr].filter(Boolean).join('\n')
@@ -273,6 +291,16 @@ export default function TerminalPage() {
   const failed = batch
     ? job.phase === 'error' || result?.state === 'FAILED' || ['COMPILATION_ERROR', 'RUNTIME_ERROR', 'TIME_LIMIT_EXCEEDED'].includes(result?.status)
     : ['error', 'timed_out', 'disconnected', 'compile_error', 'memory_limit'].includes(terminalStatus);
+
+  const view = replayMode && job.phase === 'done' ? replayView(result) : { text: '', waiting: false };
+  const waitingForInput = view.waiting;
+  const replayText = replay.count > 0 && view.text.startsWith(replay.prevRaw)
+    ? replay.committed + view.text.slice(replay.prevRaw.length).replace(/^[ \t]/, '')
+    : view.text;
+
+  useEffect(() => {
+    if (waitingForInput) terminalInputRef.current?.focus({ preventScroll: true });
+  }, [waitingForInput]);
 
   const appendTerminal = useCallback((data, stream = 'stdout') => {
     if (!data) return;
@@ -320,6 +348,13 @@ export default function TerminalPage() {
     setCopied(false);
     // Keep the current workspace view when Run is clicked. Desktop shows editor and console side by side;
     // on mobile, the user can choose the Console tab unless the program is waiting for interactive input.
+    if (replayMode) {
+      // Replay style: a fresh Run starts with no input; each value typed afterwards re-runs the program (see submitReplayInput).
+      setReplay(EMPTY_REPLAY);
+      setTerminalDraft('');
+      job.start('terminal', { language, sourceCode: code, stdin: '' });
+      return;
+    }
     if (batch) {
       job.start('terminal', { language, sourceCode: code, stdin });
       return;
@@ -424,7 +459,18 @@ export default function TerminalPage() {
       appendTerminal(`\n${text}\n`, 'stderr');
       setTerminalStatus('error');
     }
-  }, [appendTerminal, batch, canRun, code, job, language, oneShot, stdin]);
+  }, [appendTerminal, batch, canRun, code, job, language, oneShot, replayMode, stdin]);
+
+  const submitReplayInput = (event) => {
+    if (event.key !== 'Enter' || event.shiftKey) return;
+    event.preventDefault();
+    if (!waitingForInput || replay.count >= MAX_REPLAY_INPUTS) return;
+    const line = terminalDraft;
+    const inputs = [...replay.inputs, line];
+    setReplay({ committed: `${replayText.replace(/\s+$/, '')} ${line}\n`, prevRaw: view.text.replace(/\s+$/, ''), count: inputs.length, inputs });
+    setTerminalDraft('');
+    job.start('terminal', { language, sourceCode: code, stdin: `${inputs.join('\n')}\n` });
+  };
 
   const submitTerminalInput = (event) => {
     // Ctrl+D (Cmd+D is left to the browser) ends standard input, like a real terminal. Programs that read until
@@ -449,6 +495,7 @@ export default function TerminalPage() {
   };
 
   const resetCode = () => {
+    setReplay(EMPTY_REPLAY);
     if (socketRef.current) {
       const socket = socketRef.current;
       socketRef.current = null;
@@ -472,7 +519,7 @@ export default function TerminalPage() {
 
   const clearConsole = () => {
     if (busy) return;
-    if (batch) job.reset();
+    if (batch) { job.reset(); setReplay(EMPTY_REPLAY); }
     setStdin('');
     setTerminalChunks([]);
     setTerminalDraft('');
@@ -497,6 +544,28 @@ export default function TerminalPage() {
   };
 
   const renderConsole = () => {
+    if (replayMode) {
+      const running = job.phase === 'starting' || job.phase === 'polling';
+      if (job.phase === 'idle' && !replay.committed) {
+        return <Box sx={{ py: 2, color: '#A8A29C' }}><Typography sx={{ fontFamily: MONO_FONT, fontSize: 13 }}>Ready to run.</Typography><Typography sx={{ mt: 0.75, fontSize: 12, lineHeight: 1.65 }}>Write your code and click Run. If the program asks for input, type it here after the prompt and press Enter. Each input runs the program again with your values, so every step uses one run of the daily limit.</Typography></Box>;
+      }
+      const shown = job.phase === 'done' && result?.state !== 'FAILED' ? replayText : replay.committed;
+      const finished = job.phase === 'done' && result?.state !== 'FAILED' && !waitingForInput;
+      return (
+        <Box aria-live="polite">
+          <Box component="pre" onClick={() => terminalInputRef.current?.focus({ preventScroll: true })} sx={{ m: 0, minHeight: 120, fontFamily: MONO_FONT, fontSize: 13, lineHeight: 1.65, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', tabSize: 4, color: '#e3eae5' }}>
+            {shown}
+            {waitingForInput && <Box component="input" ref={terminalInputRef} aria-label="Program input" autoComplete="off" autoCapitalize="off" spellCheck="false" value={terminalDraft} onChange={(event) => setTerminalDraft(event.target.value)} onKeyDown={submitReplayInput} sx={{ display: 'inline-block', verticalAlign: 'baseline', width: `${Math.max(1, Math.min(70, terminalDraft.length + 1))}ch`, maxWidth: '100%', minWidth: '1ch', p: 0, m: 0, border: 0, outline: 0, borderRadius: 0, bgcolor: 'transparent', color: '#9ecbff', font: 'inherit', caretColor: '#E07B54' }} />}
+          </Box>
+          {running && <Stack direction="row" spacing={1.25} alignItems="center" role="status" sx={{ py: 1, color: '#A8A29C' }}><CircularProgress size={16} sx={{ color: '#E07B54' }} /><Typography sx={{ fontSize: 13 }}>Running your code...</Typography></Stack>}
+          {job.phase === 'error' && <Alert variant="outlined" severity={job.error?.kind === 'service' ? 'warning' : 'error'} role="alert" sx={{ fontSize: 13, mt: 1 }}>{ERROR_TEXT[job.error?.kind] ?? ERROR_TEXT.other}</Alert>}
+          {job.phase === 'done' && result?.state === 'FAILED' && <Alert severity="error" variant="outlined" role="alert" sx={{ fontSize: 13, mt: 1 }}>{ERROR_TEXT[CODE_KIND[result.errorCode] ?? 'other']}</Alert>}
+          {waitingForInput && <Typography sx={{ mt: 1, color: '#A8A29C', fontSize: 11 }}>The program is waiting for input. Type it above and press Enter. Run starts again from the beginning.</Typography>}
+          {finished && <Box sx={{ mt: 2, pt: 1.25, borderTop: `1px solid ${T(BORDER)}`, color: '#A8A29C', fontFamily: MONO_FONT, fontSize: 11 }}>{status.label}{result?.executionTimeMs != null ? ` - ${result.executionTimeMs} ms` : ''}{result?.memoryKb != null ? ` - ${result.memoryKb} KB` : ''}</Box>}
+          {finished && replayText && <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1.5 }}><Button size="small" startIcon={<ContentCopyRoundedIcon />} onClick={async () => { setCopied(await copyText(replayText)); window.setTimeout(() => setCopied(false), 1800); }} sx={{ color: '#E07B54', textTransform: 'none', minHeight: 32 }}>Copy output</Button><Typography role="status" sx={{ color: '#A8A29C', fontSize: 11 }}>{copied ? 'Copied' : ''}</Typography></Stack>}
+        </Box>
+      );
+    }
     if (!batch) {
       if (terminalStatus === 'idle' && terminalChunks.length === 0) {
         return <Box sx={{ py: 2, color: '#A8A29C' }}><Typography sx={{ fontFamily: MONO_FONT, fontSize: 13 }}>Ready to run.</Typography><Typography sx={{ mt: 0.75, fontSize: 12, lineHeight: 1.65 }}>Program prompts, standard output, and runtime errors appear here. When the program is running, type directly after its prompt and press Enter.</Typography></Box>;
@@ -613,7 +682,7 @@ export default function TerminalPage() {
               </Box>
 
               <Box ref={outputRef} sx={{ flex: '1 1 auto', minHeight: 190, p: { xs: 1.5, sm: 2 }, overflow: 'auto', overscrollBehavior: 'contain', bgcolor: '#0B0B0C', fontFamily: MONO_FONT, fontSize: 13 }}>
-                {batch && (
+                {batch && !replayMode && (
                   <Box sx={{ mb: 1.5, pb: 1.25, borderBottom: '1px dashed #2A2A2E' }}>
                     <Typography component="label" htmlFor="terminal-stdin" sx={{ display: 'block', color: '#7ddc95', fontFamily: MONO_FONT, fontSize: 11.5, mb: 0.5 }}>Input (one value per line, before you click Run)</Typography>
                     <Box component="textarea" id="terminal-stdin" value={stdin} onChange={(event) => setStdin(event.target.value)} rows={2} spellCheck="false" disabled={busy} placeholder="Type the input your program reads, then click Run" sx={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', p: 0, m: 0, border: 0, outline: 0, bgcolor: 'transparent', color: '#9ecbff', fontFamily: MONO_FONT, fontSize: 13, lineHeight: 1.65, '&::placeholder': { color: '#6b7a70' } }} />
