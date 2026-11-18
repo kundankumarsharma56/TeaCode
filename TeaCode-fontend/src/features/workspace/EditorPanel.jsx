@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Autocomplete, Box, Button, FormControl, InputAdornment, InputLabel, MenuItem, Select, Stack, TextField } from '@mui/material';
+import { Autocomplete, Box, IconButton, InputAdornment, Stack, TextField, Tooltip } from '@mui/material';
 import Editor from '@monaco-editor/react';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -10,9 +10,8 @@ import './monacoSetup.js';
 
 const FONT_SIZES = [12, 14, 16, 18, 20];
 
-// TeaCode quiet toolbar button and rounded field outline.
-const TOOL_BTN_SX = { color: 'inherit', borderColor: 'divider', borderRadius: 1.5, minHeight: 36, fontWeight: 600, '&:hover': { borderColor: 'text.secondary', bgcolor: 'action.hover' } };
-const FIELD_SX = { '& .MuiOutlinedInput-root': { borderRadius: '10px' } };
+const FIELD_SX = { '& .MuiOutlinedInput-root': { borderRadius: '8px' } };
+const ICON_BTN_SX = { color: 'text.secondary', borderRadius: 1.5, '&:hover': { color: 'text.primary', bgcolor: 'action.hover' }, '&.Mui-disabled': { opacity: 0.4 } };
 
 /** Copies text with the async clipboard API; reports whether it worked (it can be blocked by the browser). */
 export async function copyText(text) {
@@ -24,10 +23,16 @@ export async function copyText(text) {
   }
 }
 
-export default function EditorPanel({ languages, language, onLanguageChange, code, onCodeChange, fontSize, onFontSizeChange, onReset, resetLabel = 'Reset code', height = '420px', fill = false }) {
+/**
+ * Editor with one compact toolbar row: language, font size, copy, reset, and an optional `actions` slot at the right end
+ * (the Problems page puts Run and Submit there). With `fill` the editor takes the height of its parent.
+ */
+export default function EditorPanel({ languages, language, onLanguageChange, code, onCodeChange, fontSize, onFontSizeChange, onReset, resetLabel = 'Reset code', height = '420px', fill = false, actions = null }) {
   const { mode } = useColorMode();
   const [copied, setCopied] = useState('');
   const selected = languages.find((l) => l.key === language) ?? null;
+  const idx = FONT_SIZES.indexOf(fontSize);
+  const at = idx < 0 ? 1 : idx;
 
   const copy = async () => {
     setCopied((await copyText(code)) ? 'Copied' : 'Copy failed');
@@ -35,12 +40,12 @@ export default function EditorPanel({ languages, language, onLanguageChange, cod
   };
 
   return (
-    <Stack spacing={fill ? 0 : 1.5} sx={fill ? { flex: '1 1 auto', minHeight: 0 } : undefined}>
-      <Stack direction="row" spacing={fill ? 1 : 1.5} useFlexGap sx={fill ? { flexWrap: 'wrap', alignItems: 'center', px: 1.5, py: 1, border: 1, borderBottom: 0, borderColor: 'divider', bgcolor: 'background.default' } : { flexWrap: 'wrap', alignItems: 'center' }}>
+    <Stack spacing={0} sx={{ flex: '1 1 auto', minHeight: 0, minWidth: 0 }}>
+      <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', px: 1.25, py: 0.75, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.default' }}>
         {/* Searchable: type to filter the language list; keyboard and screen-reader friendly (combobox). */}
         <Autocomplete
           size="small"
-          sx={{ ...FIELD_SX, minWidth: 200, flex: { xs: '1 1 100%', sm: '0 1 240px' } }}
+          sx={{ ...FIELD_SX, width: { xs: '100%', sm: 200 }, mr: 0.5 }}
           options={languages}
           value={selected}
           disableClearable
@@ -53,17 +58,14 @@ export default function EditorPanel({ languages, language, onLanguageChange, cod
           }}
           renderInput={(params) => <TextField {...params} label="Language" InputProps={{ ...params.InputProps, startAdornment: selected ? <InputAdornment position="start" sx={{ mr: 0.75 }}><LanguageIcon language={selected.key} size={16} /></InputAdornment> : null }} />}
         />
-        <FormControl size="small" sx={{ ...FIELD_SX, minWidth: 110 }}>
-          <InputLabel id="font-select-label">Font size</InputLabel>
-          <Select labelId="font-select-label" label="Font size" value={fontSize} onChange={(e) => onFontSizeChange(e.target.value)}>
-            {FONT_SIZES.map((s) => <MenuItem key={s} value={s}>{s}px</MenuItem>)}
-          </Select>
-        </FormControl>
-        <Button startIcon={<ContentCopyIcon />} onClick={copy} variant="outlined" size="small" sx={TOOL_BTN_SX}>Copy code</Button>
-        <Button startIcon={<RestartAltIcon />} onClick={onReset} variant="outlined" size="small" sx={TOOL_BTN_SX}>{resetLabel}</Button>
-        <Box role="status" aria-live="polite" sx={{ fontSize: 13, color: 'text.secondary', minWidth: 70 }}>{copied}</Box>
+        <Tooltip title="Smaller text"><span><IconButton size="small" aria-label="Smaller editor text" disabled={at <= 0} onClick={() => onFontSizeChange(FONT_SIZES[Math.max(0, at - 1)])} sx={ICON_BTN_SX}><Box component="span" sx={{ fontSize: 12, fontWeight: 700, lineHeight: 1 }}>A-</Box></IconButton></span></Tooltip>
+        <Tooltip title="Larger text"><span><IconButton size="small" aria-label="Larger editor text" disabled={at >= FONT_SIZES.length - 1} onClick={() => onFontSizeChange(FONT_SIZES[Math.min(FONT_SIZES.length - 1, at + 1)])} sx={ICON_BTN_SX}><Box component="span" sx={{ fontSize: 15, fontWeight: 700, lineHeight: 1 }}>A+</Box></IconButton></span></Tooltip>
+        <Tooltip title={copied || 'Copy code'}><IconButton size="small" aria-label="Copy code" onClick={copy} sx={ICON_BTN_SX}><ContentCopyIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+        <Tooltip title={resetLabel}><IconButton size="small" aria-label={resetLabel} onClick={onReset} sx={ICON_BTN_SX}><RestartAltIcon sx={{ fontSize: 19 }} /></IconButton></Tooltip>
+        <Box role="status" aria-live="polite" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>{copied}</Box>
+        {actions}
       </Stack>
-      <Box sx={fill ? { border: 1, borderColor: 'divider', borderRadius: 0, bgcolor: 'background.paper', overflow: 'hidden', flex: '1 1 auto', minHeight: 0 } : { border: 1, borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper', overflow: 'hidden' }}>
+      <Box sx={{ flex: '1 1 auto', minHeight: 0, bgcolor: 'background.paper', overflow: 'hidden' }}>
         <Editor
           height={fill ? '100%' : height}
           path={`solution.${language}`}
@@ -71,8 +73,8 @@ export default function EditorPanel({ languages, language, onLanguageChange, cod
           value={code}
           theme={mode === 'dark' ? 'vs-dark' : 'light'}
           onChange={(v) => onCodeChange(v ?? '')}
-          options={{ fontSize, automaticLayout: true, minimap: { enabled: false }, scrollBeyondLastLine: false, tabSize: 4, ariaLabel: 'Code editor' }}
-          loading="Loading editor…"
+          options={{ fontSize, automaticLayout: true, minimap: { enabled: false }, scrollBeyondLastLine: false, tabSize: 4, ariaLabel: 'Code editor', padding: { top: 12, bottom: 12 } }}
+          loading="Loading editor..."
         />
       </Box>
     </Stack>
