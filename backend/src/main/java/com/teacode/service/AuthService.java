@@ -107,7 +107,7 @@ public class AuthService {
 
     // ---------------------------------------------------------------- registration
 
-    /** Same outcome whether or not the email already has an account (no account enumeration). */
+    /** Rejects an email that already has an account (clear message, so the user signs in instead). */
     public void register(RegisterRequest req, String ip) {
         limiter.check("register-ip", ip, 10, Duration.ofHours(1));
         String email = normalizeEmail(req.email());
@@ -119,7 +119,7 @@ public class AuthService {
         try {
             rawToken = tx.execute(status -> {
                 if (users.findByEmail(email).isPresent()) {
-                    return null;
+                    throw new ConflictException("This email is already registered. Sign in instead.");
                 }
                 if (users.existsByUsernameIgnoreCase(username)) {
                     throw new ConflictException("Username is not available.");
