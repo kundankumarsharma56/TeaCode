@@ -82,7 +82,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/logout",
                                 "/api/v1/auth/refresh", "/api/v1/auth/verify-email", "/api/v1/auth/firebase",
-                                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password").permitAll()
+                                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password",
+                                "/api/v1/auth/verify-otp", "/api/v1/auth/resend-otp").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         // Metrics are operational data: administrators only (and the proxy does not expose /actuator).
                         .requestMatchers("/actuator/**").hasRole("ADMIN")

@@ -24,6 +24,7 @@ import org.springframework.web.util.HtmlUtils;
  * configured nothing is faked: an error is logged and the email is not sent.
  */
 @Component
+@org.springframework.boot.autoconfigure.condition.ConditionalOnExpression("'${TEACODE_MAIL_PROVIDER:smtp}' != 'brevo'")
 public class SmtpAuthMailer implements AuthMailer {
 
     private static final Logger log = LoggerFactory.getLogger(SmtpAuthMailer.class);
@@ -67,6 +68,28 @@ public class SmtpAuthMailer implements AuthMailer {
                 "We received a request to reset your TeaCode password. Choose a new one with the button below.",
                 "Choose a new password", link,
                 "This link is valid for 1 hour. If you did not ask for this, you can safely ignore this email. Your password has not changed.");
+    }
+
+    /** Sends a 6-digit code. Synchronous: a failure throws, so the caller never reports success for a lost email. */
+    @Override
+    public void sendOtp(String to, String purpose, String code, int minutes) {
+        JavaMailSender sender = senderProvider.getIfAvailable();
+        if (sender == null || host.isBlank() || from.isBlank()) {
+            log.error("Email is not configured (SMTP_HOST / MAIL_FROM); the code email was NOT sent");
+            throw new com.teacode.exception.MailDeliveryException();
+        }
+        try {
+            MimeMessage message = sender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
+            helper.setFrom(new InternetAddress(from, "TeaCode", "UTF-8"));
+            helper.setTo(to);
+            helper.setSubject(OtpMail.subject(purpose));
+            helper.setText(OtpMail.text(purpose, code, minutes), OtpMail.html(purpose, code, minutes));
+            sender.send(message);
+        } catch (RuntimeException | MessagingException | UnsupportedEncodingException e) {
+            log.error("Sending the code email failed: {}", e.getClass().getSimpleName());
+            throw new com.teacode.exception.MailDeliveryException();
+        }
     }
 
     /** Inline-styled, table-based HTML (what every mail client renders). All text and the link are escaped. */

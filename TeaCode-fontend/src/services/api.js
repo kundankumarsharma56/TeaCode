@@ -14,7 +14,7 @@ export const api = axios.create({
 
 
 // Requests whose 401 is an answer, not an expired session: never refresh-and-retry them.
-const NO_REFRESH = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout', '/auth/forgot-password', '/auth/reset-password', '/auth/verify-email', '/auth/firebase'];
+const NO_REFRESH = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout', '/auth/forgot-password', '/auth/reset-password', '/auth/verify-email', '/auth/verify-otp', '/auth/resend-otp', '/auth/firebase'];
 
 let inFlight = null;
 

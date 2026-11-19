@@ -5,6 +5,8 @@ import com.teacode.dto.ForgotPasswordRequest;
 import com.teacode.dto.LoginRequest;
 import com.teacode.dto.RegisterRequest;
 import com.teacode.dto.ResetPasswordRequest;
+import com.teacode.dto.ResendOtpRequest;
+import com.teacode.dto.VerifyOtpRequest;
 import com.teacode.dto.TokenRequest;
 import com.teacode.dto.UserResponse;
 import com.teacode.exception.ApiException;
@@ -74,22 +76,38 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<Void> register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http) {
-        auth.register(request, http.getRemoteAddr());
+    public ResponseEntity<java.util.Map<String, Boolean>> register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http) {
+        boolean codeSent = auth.register(request, http.getRemoteAddr());
+        return ResponseEntity.accepted().body(java.util.Map.of("verificationRequired", codeSent));
+    }
+
+    @PostMapping("/verify-otp")
+    public ResponseEntity<UserResponse> verifyOtp(@Valid @RequestBody VerifyOtpRequest request, HttpServletRequest http) {
+        AuthResult result = auth.verifyOtp(request.email(), request.code(), http.getRemoteAddr());
+        return cookies.withSession(ResponseEntity.ok(), result.accessToken(), result.refreshToken()).body(result.user());
+    }
+
+    @PostMapping("/resend-otp")
+    public ResponseEntity<Void> resendOtp(@Valid @RequestBody ResendOtpRequest request, HttpServletRequest http) {
+        auth.resendOtp(request.email(), http.getRemoteAddr());
         return ResponseEntity.accepted().build();
     }
 
     @PostMapping("/login")
     public ResponseEntity<UserResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
         AuthResult result = auth.login(request.email(), request.password(), http.getRemoteAddr());
+        if (request.rememberMe() != null && !request.rememberMe()) {
+            return cookies.withSession(ResponseEntity.ok(), result.accessToken(), result.refreshToken(), false).body(result.user());
+        }
         return cookies.withSession(ResponseEntity.ok(), result.accessToken(), result.refreshToken()).body(result.user());
     }
 
     @PostMapping("/refresh")
     public ResponseEntity<Void> refresh(@CookieValue(name = CookieService.REFRESH, required = false) String refreshToken,
+                                        @CookieValue(name = CookieService.REMEMBER, required = false) String remember,
                                         HttpServletRequest http) {
         AuthResult result = auth.refresh(refreshToken, http.getRemoteAddr());
-        return cookies.withSession(ResponseEntity.status(HttpStatus.NO_CONTENT), result.accessToken(), result.refreshToken()).build();
+        return cookies.withSession(ResponseEntity.status(HttpStatus.NO_CONTENT), result.accessToken(), result.refreshToken(), remember != null).build();
     }
 
     @PostMapping("/logout")
@@ -118,7 +136,7 @@ public class AuthController {
 
     @PostMapping("/reset-password")
     public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request, HttpServletRequest http) {
-        auth.resetPassword(request.token(), request.password(), http.getRemoteAddr());
+        auth.resetPassword(request.email(), request.code(), request.password(), http.getRemoteAddr());
         return ResponseEntity.noContent().build();
     }
 }
