@@ -5,6 +5,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -14,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.teacode.service.AuthMailer;
+import com.teacode.service.OtpService;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import jakarta.servlet.http.Cookie;
@@ -87,7 +90,7 @@ class AuthApiIT {
     @BeforeEach
     void clean() {
         reset(mailer);
-        for (String t : new String[] {"refresh_sessions", "email_verification_tokens", "password_reset_tokens", "policy_acceptances",
+        for (String t : new String[] {"refresh_sessions", "email_otps", "email_verification_tokens", "password_reset_tokens", "policy_acceptances",
                 "oauth_identities", "user_avatars", "submission_jobs", "submissions", "problem_timers", "attempts", "audit_events", "users"}) {
             jdbc.update("delete from " + t);
         }
@@ -130,9 +133,23 @@ class AuthApiIT {
         return mvc.perform(post("/api/v1/auth/refresh").with(from(ip)).with(csrf()).cookie(new Cookie("cv_refresh", refreshToken))).andReturn();
     }
 
-    private static String tokenFrom(ArgumentCaptor<String> link) {
-        String l = link.getValue();
-        return l.substring(l.indexOf("token=") + "token=".length());
+    private org.springframework.test.web.servlet.ResultActions postJson(String path, String ip, String body) throws Exception {
+        return mvc.perform(post(path).with(from(ip)).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private static String registerBody(String name, String email) {
+        return "{\"username\":\"" + name + "\",\"email\":\"" + email + "\",\"password\":\"" + PASSWORD + "\",\"acceptPolicies\":true,\"policyVersion\":\"1\"}";
+    }
+
+    private static String otpBody(String email, String code) {
+        return "{\"email\":\"" + email + "\",\"code\":\"" + code + "\"}";
+    }
+
+    /** The 6-digit code most recently handed to the (mock) mailer for this email and purpose. */
+    private String lastCode(String email, String purpose) {
+        ArgumentCaptor<String> code = ArgumentCaptor.forClass(String.class);
+        verify(mailer, atLeastOnce()).sendOtp(eq(email), eq(purpose), code.capture(), eq(OtpService.CODE_MINUTES));
+        return code.getValue();
     }
 
     private int activeSessions(long userId) {
@@ -142,26 +159,36 @@ class AuthApiIT {
     // ------------------------------------------------------------------ registration
 
     @Test
-    void registrationCreatesAnUnverifiedAccountAndNeverStoresThePlainPassword() throws Exception {
-        mvc.perform(post("/api/v1/auth/register").with(from("10.1.0.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"newbie\",\"email\":\"New@Example.com\",\"password\":\"" + PASSWORD + "\",\"acceptPolicies\":true,\"policyVersion\":\"1\"}"))
-                .andExpect(status().isAccepted());
+    void registrationCreatesAnUnverifiedAccountAndEmailsACode() throws Exception {
+        postJson("/api/v1/auth/register", "10.1.0.1",
+                "{\"username\":\"newbie\",\"email\":\"New@Example.com\",\"password\":\"" + PASSWORD + "\",\"acceptPolicies\":true,\"policyVersion\":\"1\"}")
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.verificationRequired").value(true));
         assertThat(jdbc.queryForObject("select email_verified from users where username='newbie'", Boolean.class)).isFalse();
         assertThat(jdbc.queryForObject("select email from users where username='newbie'", String.class)).isEqualTo("new@example.com");
         String hash = jdbc.queryForObject("select password_hash from users where username='newbie'", String.class);
         assertThat(hash).startsWith("$argon2id$").doesNotContain(PASSWORD);
         assertThat(jdbc.queryForObject("select count(*) from policy_acceptances", Integer.class)).isEqualTo(2);
-        verify(mailer).sendVerification(eq("new@example.com"), anyString());
+        String code = lastCode("new@example.com", "VERIFY");
+        assertThat(code).matches("\\d{6}");
+        assertThat(jdbc.queryForObject("select code_hash from email_otps", String.class)).hasSize(64).doesNotContain(code);
     }
 
     @Test
-    void registeringAnExistingEmailLooksIdenticalAndSendsNothing() throws Exception {
+    void registeringAVerifiedEmailIsRefusedAndSendsNothing() throws Exception {
         createUser("taken", "taken@example.com", true);
-        mvc.perform(post("/api/v1/auth/register").with(from("10.1.0.2")).with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"someoneelse\",\"email\":\"taken@example.com\",\"password\":\"" + PASSWORD + "\",\"acceptPolicies\":true,\"policyVersion\":\"1\"}"))
-                .andExpect(status().isAccepted());
+        postJson("/api/v1/auth/register", "10.1.0.2", registerBody("someoneelse", "taken@example.com")).andExpect(status().isConflict());
         assertThat(jdbc.queryForObject("select count(*) from users", Integer.class)).isEqualTo(1);
-        verify(mailer, never()).sendVerification(anyString(), anyString());
+        verify(mailer, never()).sendOtp(anyString(), anyString(), anyString(), eq(OtpService.CODE_MINUTES));
+    }
+
+    @Test
+    void registeringAgainWithAnUnverifiedEmailReplacesTheDetailsAndSendsANewCode() throws Exception {
+        createUser("pending", "pending@example.com", false);
+        postJson("/api/v1/auth/register", "10.1.0.4", registerBody("renamed", "pending@example.com")).andExpect(status().isAccepted());
+        assertThat(jdbc.queryForObject("select username from users where email='pending@example.com'", String.class)).isEqualTo("renamed");
+        assertThat(jdbc.queryForObject("select count(*) from users", Integer.class)).isEqualTo(1);
+        assertThat(lastCode("pending@example.com", "VERIFY")).matches("\\d{6}");
     }
 
     @Test
@@ -332,21 +359,45 @@ class AuthApiIT {
     // ------------------------------------------------------------------ e-mail verification
 
     @Test
-    void verificationLinksAreSingleUseAndMalformedOnesAreRejected() throws Exception {
-        mvc.perform(post("/api/v1/auth/register").with(from("10.5.0.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"newbie\",\"email\":\"newbie@example.com\",\"password\":\"" + PASSWORD + "\",\"acceptPolicies\":true,\"policyVersion\":\"1\"}"))
-                .andExpect(status().isAccepted());
-        ArgumentCaptor<String> link = ArgumentCaptor.forClass(String.class);
-        verify(mailer).sendVerification(eq("newbie@example.com"), link.capture());
-        String token = tokenFrom(link);
-        assertThat(jdbc.queryForObject("select token_hash from email_verification_tokens", String.class)).doesNotContain(token);
-
-        String body = "{\"token\":\"" + token + "\"}";
-        mvc.perform(post("/api/v1/auth/verify-email").with(from("10.5.0.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isNoContent());
+    void aCorrectCodeVerifiesOnceAndSignsTheUserIn() throws Exception {
+        postJson("/api/v1/auth/register", "10.5.0.1", registerBody("newbie", "newbie@example.com")).andExpect(status().isAccepted());
+        String code = lastCode("newbie@example.com", "VERIFY");
+        String wrong = code.equals("111111") ? "222222" : "111111";
+        postJson("/api/v1/auth/verify-otp", "10.5.0.1", otpBody("newbie@example.com", wrong)).andExpect(status().isBadRequest());
+        MvcResult ok = postJson("/api/v1/auth/verify-otp", "10.5.0.1", otpBody("newbie@example.com", code)).andExpect(status().isOk()).andReturn();
+        assertThat(setCookieHeader(ok, "cv_access")).contains("HttpOnly");
         assertThat(jdbc.queryForObject("select email_verified from users where username='newbie'", Boolean.class)).isTrue();
-        mvc.perform(post("/api/v1/auth/verify-email").with(from("10.5.0.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
-        mvc.perform(post("/api/v1/auth/verify-email").with(from("10.5.0.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"token\":\"garbage\"}")).andExpect(status().isBadRequest());
-        mvc.perform(post("/api/v1/auth/verify-email").with(from("10.5.0.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isBadRequest());
+        postJson("/api/v1/auth/verify-otp", "10.5.0.1", otpBody("newbie@example.com", code)).andExpect(status().isBadRequest());
+        postJson("/api/v1/auth/verify-otp", "10.5.0.1", otpBody("newbie@example.com", "abc")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void fiveWrongCodesBlockEvenTheCorrectCode() throws Exception {
+        postJson("/api/v1/auth/register", "10.5.1.1", registerBody("tries", "tries@example.com")).andExpect(status().isAccepted());
+        String code = lastCode("tries@example.com", "VERIFY");
+        String wrong = code.equals("111111") ? "222222" : "111111";
+        for (int i = 0; i < 5; i++) {
+            postJson("/api/v1/auth/verify-otp", "10.5.1.1", otpBody("tries@example.com", wrong)).andExpect(status().isBadRequest());
+        }
+        postJson("/api/v1/auth/verify-otp", "10.5.1.1", otpBody("tries@example.com", code)).andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("select email_verified from users where username='tries'", Boolean.class)).isFalse();
+    }
+
+    @Test
+    void anExpiredCodeIsRefused() throws Exception {
+        postJson("/api/v1/auth/register", "10.5.2.1", registerBody("late", "late@example.com")).andExpect(status().isAccepted());
+        String code = lastCode("late@example.com", "VERIFY");
+        jdbc.update("update email_otps set expires_at = now(6) - interval 1 minute");
+        postJson("/api/v1/auth/verify-otp", "10.5.2.1", otpBody("late@example.com", code)).andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("select email_verified from users where username='late'", Boolean.class)).isFalse();
+    }
+
+    @Test
+    void resendSendsANewCodeOnceAndThenWaits() throws Exception {
+        postJson("/api/v1/auth/register", "10.5.3.1", registerBody("again", "again@example.com")).andExpect(status().isAccepted());
+        postJson("/api/v1/auth/resend-otp", "10.5.3.1", "{\"email\":\"again@example.com\"}").andExpect(status().isAccepted());
+        verify(mailer, times(2)).sendOtp(eq("again@example.com"), eq("VERIFY"), anyString(), eq(OtpService.CODE_MINUTES));
+        postJson("/api/v1/auth/resend-otp", "10.5.3.1", "{\"email\":\"again@example.com\"}").andExpect(status().isTooManyRequests());
     }
 
     // ------------------------------------------------------------------ password reset and change
@@ -354,28 +405,51 @@ class AuthApiIT {
     @Test
     void forgotPasswordGivesTheSameAnswerForKnownAndUnknownEmails() throws Exception {
         createUser("ada", "ada@example.com", true);
-        mvc.perform(post("/api/v1/auth/forgot-password").with(from("10.6.0.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"email\":\"ada@example.com\"}")).andExpect(status().isAccepted());
-        mvc.perform(post("/api/v1/auth/forgot-password").with(from("10.6.0.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"email\":\"ghost@example.com\"}")).andExpect(status().isAccepted());
-        verify(mailer).sendPasswordReset(eq("ada@example.com"), anyString());
-        verify(mailer, never()).sendPasswordReset(eq("ghost@example.com"), anyString());
+        postJson("/api/v1/auth/forgot-password", "10.6.0.1", "{\"email\":\"ada@example.com\"}").andExpect(status().isAccepted());
+        postJson("/api/v1/auth/forgot-password", "10.6.0.1", "{\"email\":\"ghost@example.com\"}").andExpect(status().isAccepted());
+        verify(mailer).sendOtp(eq("ada@example.com"), eq("RESET"), anyString(), eq(OtpService.CODE_MINUTES));
+        verify(mailer, never()).sendOtp(eq("ghost@example.com"), anyString(), anyString(), eq(OtpService.CODE_MINUTES));
     }
 
     @Test
-    void resetTokensWorkOnceAndRevokeEverySession() throws Exception {
+    void resetCodesWorkOnceAndRevokeEverySession() throws Exception {
         long id = createUser("ada", "ada@example.com", true);
         String refreshToken = cookie(login("ada@example.com", PASSWORD, "10.6.1.1"), "cv_refresh");
-        mvc.perform(post("/api/v1/auth/forgot-password").with(from("10.6.1.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"email\":\"ada@example.com\"}")).andExpect(status().isAccepted());
-        ArgumentCaptor<String> link = ArgumentCaptor.forClass(String.class);
-        verify(mailer).sendPasswordReset(eq("ada@example.com"), link.capture());
-        String token = tokenFrom(link);
+        postJson("/api/v1/auth/forgot-password", "10.6.1.1", "{\"email\":\"ada@example.com\"}").andExpect(status().isAccepted());
+        String code = lastCode("ada@example.com", "RESET");
+        String wrong = code.equals("111111") ? "222222" : "111111";
 
-        String body = "{\"token\":\"" + token + "\",\"password\":\"a brand new passphrase\"}";
-        mvc.perform(post("/api/v1/auth/reset-password").with(from("10.6.1.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isNoContent());
-        mvc.perform(post("/api/v1/auth/reset-password").with(from("10.6.1.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
+        String bad = "{\"email\":\"ada@example.com\",\"code\":\"" + wrong + "\",\"password\":\"a brand new passphrase\"}";
+        postJson("/api/v1/auth/reset-password", "10.6.1.1", bad).andExpect(status().isBadRequest());
+        String body = "{\"email\":\"ada@example.com\",\"code\":\"" + code + "\",\"password\":\"a brand new passphrase\"}";
+        postJson("/api/v1/auth/reset-password", "10.6.1.1", body).andExpect(status().isNoContent());
+        postJson("/api/v1/auth/reset-password", "10.6.1.1", body).andExpect(status().isBadRequest());
         assertThat(activeSessions(id)).isZero();
         assertThat(refresh(refreshToken, "10.6.1.1").getResponse().getStatus()).isEqualTo(401);
         assertThat(login("ada@example.com", PASSWORD, "10.6.1.1").getResponse().getStatus()).isEqualTo(401);
         assertThat(login("ada@example.com", "a brand new passphrase", "10.6.1.1").getResponse().getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void aSuccessfulResetAlsoMarksTheEmailVerified() throws Exception {
+        createUser("pending", "pending@example.com", false);
+        postJson("/api/v1/auth/forgot-password", "10.6.3.1", "{\"email\":\"pending@example.com\"}").andExpect(status().isAccepted());
+        String code = lastCode("pending@example.com", "RESET");
+        postJson("/api/v1/auth/reset-password", "10.6.3.1",
+                "{\"email\":\"pending@example.com\",\"code\":\"" + code + "\",\"password\":\"a brand new passphrase\"}").andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("select email_verified from users where email='pending@example.com'", Boolean.class)).isTrue();
+    }
+
+    @Test
+    void rememberMeOffGivesASessionCookieAndOnGivesAPersistentOne() throws Exception {
+        createUser("ada", "ada@example.com", true);
+        MvcResult off = mvc.perform(post("/api/v1/auth/login").with(from("10.2.2.1")).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"ada@example.com\",\"password\":\"" + PASSWORD + "\",\"rememberMe\":false}")).andReturn();
+        assertThat(off.getResponse().getStatus()).isEqualTo(200);
+        assertThat(setCookieHeader(off, "cv_refresh")).contains("HttpOnly").doesNotContain("Max-Age");
+        MvcResult on = login("ada@example.com", PASSWORD, "10.2.2.2");
+        assertThat(setCookieHeader(on, "cv_refresh")).contains("Max-Age");
+        assertThat(setCookieHeader(on, "cv_remember")).contains("Max-Age");
     }
 
     @Test
