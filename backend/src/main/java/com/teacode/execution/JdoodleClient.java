@@ -3,6 +3,7 @@ package com.teacode.execution;
 import com.teacode.config.AppProperties;
 import com.teacode.exception.ServiceUnavailableException;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
@@ -50,6 +51,7 @@ public class JdoodleClient {
     public record Result(String output, Integer memory, Double cpuSeconds, Integer compilationStatus) {
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private record Request(String clientId, String clientSecret, String script, String stdin, String language,
                            String versionIndex, Boolean compileOnly) {
     }
