@@ -104,7 +104,7 @@ export default function AuthShell({ title, subtitle, children }) {
 export function errorMessage(err, fallback = 'Something went wrong. Please try again.') {
   const status = err?.response?.status;
   if (status === 429) return 'Too many attempts. Please wait a moment and try again.';
-  if (status === 403 && err?.response?.data?.code === 'EMAIL_UNVERIFIED') return 'Verify your email address before signing in. Open the verification link sent to your inbox.';
+  if (status === 403 && err?.response?.data?.code === 'EMAIL_UNVERIFIED') return 'Verify your email address before signing in. Enter the code we emailed you.';
   if (status === 403) return FORBIDDEN_MESSAGE;
   if (!err?.response) return 'Could not reach the server. Check your connection and try again.';
   return err.response.data?.message || fallback;

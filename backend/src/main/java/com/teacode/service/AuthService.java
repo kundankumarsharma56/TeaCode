@@ -5,12 +5,14 @@ import com.teacode.config.AppProperties;
 import com.teacode.dto.RegisterRequest;
 import com.teacode.dto.UserResponse;
 import com.teacode.entity.EmailVerificationToken;
+import com.teacode.entity.EmailOtp;
 import com.teacode.entity.PasswordResetToken;
 import com.teacode.entity.PolicyAcceptance;
 import com.teacode.entity.RefreshSession;
 import com.teacode.entity.User;
 import com.teacode.exception.BadRequestException;
 import com.teacode.exception.ConflictException;
+import com.teacode.exception.MailDeliveryException;
 import com.teacode.exception.UnauthorizedException;
 import com.teacode.repository.EmailVerificationTokenRepository;
 import com.teacode.repository.PasswordResetTokenRepository;
@@ -41,6 +43,7 @@ public class AuthService {
     static final long REUSE_GRACE_SECONDS = 10;
 
     public static final String BAD_LINK = "This link is invalid or has expired.";
+    public static final String BAD_CODE = "This code is invalid or has expired.";
 
     /** Result of a successful login or refresh: the user view plus the raw cookie values to set. */
     public record AuthResult(UserResponse user, String accessToken, String refreshToken) {
@@ -61,6 +64,7 @@ public class AuthService {
     private final AppProperties props;
     private final Clock clock;
     private final UserViewService views;
+    private final OtpService otp;
     /** When false, accounts are verified at registration and no verification email is sent. */
     @org.springframework.beans.factory.annotation.Value("${TEACODE_REQUIRE_EMAIL_VERIFICATION:true}")
     private boolean requireEmailVerification = true;
@@ -71,8 +75,10 @@ public class AuthService {
                        EmailVerificationTokenRepository verificationTokens, PasswordResetTokenRepository resetTokens,
                        PolicyAcceptanceRepository policies, PasswordEncoder encoder, TokenService tokens,
                        JwtService jwt, AuthMailer mailer, AuditService audit, RateLimiter limiter,
-                       TransactionTemplate tx, AppProperties props, Clock clock, UserViewService views) {
+                       TransactionTemplate tx, AppProperties props, Clock clock, UserViewService views,
+                       OtpService otp) {
         this.views = views;
+        this.otp = otp;
         this.users = users;
         this.sessions = sessions;
         this.verificationTokens = verificationTokens;
@@ -107,19 +113,37 @@ public class AuthService {
 
     // ---------------------------------------------------------------- registration
 
-    /** Rejects an email that already has an account (clear message, so the user signs in instead). */
-    public void register(RegisterRequest req, String ip) {
+    /**
+     * Creates the account. With email verification on, the account stays unverified until the 6-digit code from
+     * the email is accepted (verifyOtp). Registering again with an email whose account is still unverified replaces
+     * its username and password and sends a new code, so nobody can lock an address they do not own.
+     * Returns true when a code was emailed.
+     */
+    public boolean register(RegisterRequest req, String ip) {
         limiter.check("register-ip", ip, 10, Duration.ofHours(1));
         String email = normalizeEmail(req.email());
         String username = req.username().trim();
-        // Always hash, so response time is the same for new and existing emails.
+        if (requireEmailVerification) {
+            limiter.check("register-email", email, 3, Duration.ofHours(1));
+        }
+        // Always hash, so response time is the same for every outcome.
         String hash = encoder.encode(req.password());
 
-        String rawToken;
+        String code;
         try {
-            rawToken = tx.execute(status -> {
-                if (users.findByEmail(email).isPresent()) {
-                    throw new ConflictException("This email is already registered. Sign in instead.");
+            code = tx.execute(status -> {
+                User existing = users.findByEmail(email).orElse(null);
+                if (existing != null) {
+                    if (!requireEmailVerification || existing.isEmailVerified() || !existing.isActive()) {
+                        throw new ConflictException("This email is already registered. Sign in instead.");
+                    }
+                    if (!existing.getUsername().equalsIgnoreCase(username) && users.existsByUsernameIgnoreCase(username)) {
+                        throw new ConflictException("Username is not available.");
+                    }
+                    existing.setUsername(username);
+                    existing.setPasswordHash(hash);
+                    sessions.revokeAllForUser(existing.getId(), now());
+                    return otp.issue(existing.getId(), EmailOtp.VERIFY);
                 }
                 if (users.existsByUsernameIgnoreCase(username)) {
                     throw new ConflictException("Username is not available.");
@@ -131,21 +155,66 @@ public class AuthService {
                     user.setEmailVerified(true);
                     return "";
                 }
-                return issueVerificationToken(user.getId());
+                return otp.issue(user.getId(), EmailOtp.VERIFY);
             });
         } catch (DataIntegrityViolationException e) {
             // Lost a race on a unique constraint (username or email).
-            throw new ConflictException("Username is not available.");
+            throw new ConflictException("Email or username is not available.");
         }
 
-        if (rawToken != null && rawToken.isEmpty()) {
+        if (code == null || code.isEmpty()) {
             audit.record(null, "REGISTER", "SUCCESS", ip, "email verification off");
-        } else if (rawToken != null) {
-            mailer.sendVerification(email, link("/verify-email", rawToken));
-            audit.record(null, "REGISTER", "SUCCESS", ip, null);
-        } else {
-            audit.record(null, "REGISTER", "IGNORED", ip, "email already registered");
+            return false;
         }
+        try {
+            mailer.sendOtp(email, EmailOtp.VERIFY, code, OtpService.CODE_MINUTES);
+        } catch (MailDeliveryException e) {
+            audit.record(null, "REGISTER", "MAIL_FAILED", ip, null);
+            throw e;
+        }
+        audit.record(null, "REGISTER", "SUCCESS", ip, "code sent");
+        return true;
+    }
+
+    /** Checks the emailed code, marks the email verified and signs the user in. One message for every failure. */
+    public AuthResult verifyOtp(String rawEmail, String code, String ip) {
+        String email = normalizeEmail(rawEmail);
+        limiter.check("otp-ip", ip, 30, Duration.ofHours(1));
+        limiter.check("otp-email", email, 15, Duration.ofHours(1));
+        User found = users.findByEmail(email).filter(u -> u.isActive() && !u.isEmailVerified()).orElse(null);
+        if (found == null) {
+            throw new BadRequestException(BAD_CODE);
+        }
+        long userId = found.getId();
+        Boolean ok = tx.execute(status -> {
+            if (!otp.verify(userId, EmailOtp.VERIFY, code)) {
+                return false;
+            }
+            users.findById(userId).orElseThrow().setEmailVerified(true);
+            return true;
+        });
+        if (!Boolean.TRUE.equals(ok)) {
+            audit.record(userId, "EMAIL_VERIFIED", "FAILURE", ip, "wrong or expired code");
+            throw new BadRequestException(BAD_CODE);
+        }
+        audit.record(userId, "EMAIL_VERIFIED", "SUCCESS", ip, "code");
+        return startSession(userId);
+    }
+
+    /** Sends a fresh code to an unverified account. Does nothing for unknown or already verified emails. */
+    public void resendOtp(String rawEmail, String ip) {
+        String email = normalizeEmail(rawEmail);
+        limiter.check("otp-resend-ip", ip, 10, Duration.ofHours(1));
+        limiter.check("otp-resend-email", email, 5, Duration.ofHours(1));
+        limiter.check("otp-resend-wait", email, 1, Duration.ofSeconds(60));
+        User user = users.findByEmail(email).filter(u -> u.isActive() && !u.isEmailVerified()).orElse(null);
+        if (user == null || !requireEmailVerification) {
+            return;
+        }
+        long userId = user.getId();
+        String code = tx.execute(status -> otp.issue(userId, EmailOtp.VERIFY));
+        mailer.sendOtp(email, EmailOtp.VERIFY, code, OtpService.CODE_MINUTES);
+        audit.record(userId, "OTP_RESENT", "SUCCESS", ip, null);
     }
 
     /** Must be called inside a transaction. */
@@ -272,41 +341,57 @@ public class AuthService {
 
     // ---------------------------------------------------------------- password reset
 
-    /** Always completes normally, so the response never reveals whether the email has an account. */
+    /** Emails a 6-digit reset code. Does nothing for unknown emails, so the answer does not reveal them. */
     public void forgotPassword(String rawEmail, String ip) {
         String email = normalizeEmail(rawEmail);
         limiter.check("forgot-ip", ip, 10, Duration.ofHours(1));
-        limiter.check("forgot-email", email, 3, Duration.ofHours(1));
+        limiter.check("forgot-email", email, 5, Duration.ofHours(1));
+        limiter.check("forgot-wait", email, 1, Duration.ofSeconds(60));
 
-        users.findByEmail(email).filter(User::isActive).ifPresent(user -> {
-            String raw = tx.execute(status -> {
-                resetTokens.invalidateAllForUser(user.getId(), now());
-                String token = tokens.newOpaqueToken();
-                resetTokens.save(new PasswordResetToken(user.getId(), tokens.hash(token), now().plusHours(1)));
-                return token;
-            });
-            mailer.sendPasswordReset(email, link("/reset-password", raw));
-            audit.record(user.getId(), "PASSWORD_RESET_REQUESTED", "SUCCESS", ip, null);
-        });
+        User user = users.findByEmail(email).filter(User::isActive).orElse(null);
+        if (user == null) {
+            return;
+        }
+        long userId = user.getId();
+        String code = tx.execute(status -> otp.issue(userId, EmailOtp.RESET));
+        try {
+            mailer.sendOtp(email, EmailOtp.RESET, code, OtpService.CODE_MINUTES);
+        } catch (MailDeliveryException e) {
+            audit.record(userId, "PASSWORD_RESET_REQUESTED", "MAIL_FAILED", ip, null);
+            throw e;
+        }
+        audit.record(userId, "PASSWORD_RESET_REQUESTED", "SUCCESS", ip, "code sent");
     }
 
-    public void resetPassword(String rawToken, String newPassword, String ip) {
-        limiter.check("reset-ip", ip, 10, Duration.ofHours(1));
-        PasswordResetToken token = resetTokens.findByTokenHash(tokens.hash(rawToken))
-                .orElseThrow(() -> new BadRequestException(BAD_LINK));
+    /** Checks the emailed code, sets the new password, marks the email verified and ends every session. */
+    public void resetPassword(String rawEmail, String code, String newPassword, String ip) {
+        String email = normalizeEmail(rawEmail);
+        limiter.check("reset-ip", ip, 20, Duration.ofHours(1));
+        limiter.check("reset-email", email, 15, Duration.ofHours(1));
+        // Always hash first, so response time does not depend on the email.
         String hash = encoder.encode(newPassword);
+        User found = users.findByEmail(email).filter(User::isActive).orElse(null);
+        if (found == null) {
+            throw new BadRequestException(BAD_CODE);
+        }
+        long userId = found.getId();
         Boolean ok = tx.execute(status -> {
-            if (resetTokens.consume(token.getId(), now()) == 0) {
+            if (!otp.verify(userId, EmailOtp.RESET, code)) {
                 return false;
             }
-            User user = users.findById(token.getUserId()).orElseThrow();
+            User user = users.findById(userId).filter(User::isActive).orElse(null);
+            if (user == null) {
+                return false;
+            }
             user.setPasswordHash(hash);
-            sessions.revokeAllForUser(user.getId(), now());
+            user.setEmailVerified(true);
+            sessions.revokeAllForUser(userId, now());
             return true;
         });
         if (!Boolean.TRUE.equals(ok)) {
-            throw new BadRequestException(BAD_LINK);
+            audit.record(userId, "PASSWORD_RESET", "FAILURE", ip, "wrong or expired code");
+            throw new BadRequestException(BAD_CODE);
         }
-        audit.record(token.getUserId(), "PASSWORD_RESET", "SUCCESS", ip, "all sessions revoked");
+        audit.record(userId, "PASSWORD_RESET", "SUCCESS", ip, "all sessions revoked");
     }
 }
